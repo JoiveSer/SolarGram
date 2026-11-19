@@ -53,7 +53,11 @@ def main() -> None:
         ui_replacements = [
             ("ayu/ayu_ui_settings.cpp", "solar/solar_ui_settings.cpp"),
             ("ayu/ayu_ui_settings.h", "solar/solar_ui_settings.h"),
+            ('"ayu_ui_settings.h"', '"solar_ui_settings.h"'),
             ("AyuUiSettings", "SolarUiSettings"),
+            ("AyuUserpic", "SolarUserpic"),
+            ("ayuToggleAnim", "solarToggleAnim"),
+            ("// AyuGram includes", "// SolarGram includes"),
             ("AyuGram", "SolarGram"),
             ("@Radolyn", "SolarGram"),
         ]

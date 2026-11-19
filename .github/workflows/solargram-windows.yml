@@ -52,7 +52,7 @@ jobs:
         with:
           minimum-size: 16GB
           maximum-size: 24GB
-          disk-root: "C:"
+          disk-root: "D:"
 
       - name: Free up runner disk space
         shell: pwsh
@@ -66,7 +66,10 @@ jobs:
             "$env:AGENT_TOOLSDIRECTORY\Java_Temurin-Hotspot_jdk",
             "$env:ProgramFiles\Microsoft SQL Server",
             "${env:ProgramFiles(x86)}\Microsoft SQL Server",
-            "$env:ProgramFiles\Docker"
+            "$env:ProgramFiles\Docker",
+            "C:\msys64",
+            "C:\SeleniumWebDrivers",
+            "C:\Strawberry"
           )
           foreach ($path in $paths) {
             if ($path -and (Test-Path $path)) {
@@ -75,12 +78,19 @@ jobs:
           }
           Get-PSDrive -PSProvider FileSystem | Format-Table -AutoSize
 
-      - name: Prepare short TBuild directory
+      - name: Prepare short TBuild directory on D drive (147 GB free)
         run: |
-          mkdir %userprofile%\TBuild\Libraries
-          mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
+          mkdir D:\TBuild\Libraries
+          mkdir D:\TBuild\Temp
+          mkdir D:\TBuild\NuGetCache
+          mkdir D:\TBuild\PipCache
+          mklink /d %GITHUB_WORKSPACE%\TBuild D:\TBuild
           echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
           echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries\win64>>%GITHUB_ENV%
+          echo TEMP=D:\TBuild\Temp>>%GITHUB_ENV%
+          echo TMP=D:\TBuild\Temp>>%GITHUB_ENV%
+          echo NUGET_PACKAGES=D:\TBuild\NuGetCache>>%GITHUB_ENV%
+          echo PIP_CACHE_DIR=D:\TBuild\PipCache>>%GITHUB_ENV%
 
       - name: Get repository name
         shell: bash
@@ -229,6 +239,9 @@ jobs:
         shell: bash
         run: |
           find "$LibrariesPath" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
+          rm -rf "$TBUILD/ThirdParty/msys64/var/cache/pacman/pkg"/* || true
+          rm -rf "$TBUILD/ThirdParty/rust/rustup/toolchains"/*/share/doc || true
+          df -h "$TBUILD" || true
 
       - name: Save ThirdParty cache
         if: steps.cache-third-party.outputs.cache-hit != 'true'

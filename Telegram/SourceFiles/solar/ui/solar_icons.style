@@ -1,0 +1,78 @@
+/*
+ * This is the source code of SolarGram Desktop.
+ * Built on Telegram Desktop under GNU GPLv3.
+ */
+
+using "ui/colors.palette";
+using "ui/chat/chat.style";
+using "ui/widgets/widgets.style";
+using "dialogs/dialogs.style";
+
+solarGhostIcon: icon {{ "solar/ghost", menuIconColor }};
+solarGhostModeGlobalIcon: icon {{ "solar/ghost_mode_global", historyPeerUserpicFg }};
+solarEditsHistoryIcon: icon {{ "solar/edits_history", menuIconColor }};
+solarLReadMenuIcon: icon {{ "solar/lread", menuIconColor }};
+solarSReadMenuIcon: icon {{ "solar/sread", menuIconColor }};
+solarStreamerModeMenuIcon: icon {{ "solar/streamer", menuIconColor }};
+solarToBeginningMenuIcon: icon {{ "solar/to_beginning", menuIconColor }};
+solarRepeatMenuIcon: icon {{ "solar/repeat", menuIconColor }};
+solarContactsMutualIcon: icon {{ "solar/contacts_mutual", contactsStatusFg }};
+solarContactsMutualIconOver: icon {{ "solar/contacts_mutual", contactsStatusFgOver }};
+
+messageFieldAttachIcon: icon {{ "solar/message_field/attach", menuIconColor }};
+messageFieldCommandsIcon: icon {{ "solar/message_field/commands", menuIconColor }};
+messageFieldEmojiIcon: icon {{ "solar/message_field/emoji", menuIconColor }};
+messageFieldVoiceIcon: icon {{ "solar/message_field/voice", menuIconColor }};
+messageFieldTTLIcon: icon {{ "solar/message_field/ttl", menuIconColor }};
+messageFieldCocoonAiIcon: icon{
+	{ size(24px, 24px), transparent },
+	{ "chat/ai_letters-20x20", menuIconColor, point(2px, 2px) },
+	{ "chat/ai_star1-20x20", menuIconColor, point(2px, 2px) },
+	{ "chat/ai_star2-20x20", menuIconColor, point(2px, 2px) },
+};
+
+inChannelBadgeIcon: icon {{ "solar/channel", msgInDateFg }};
+inChannelBadgeSelectedIcon: icon {{ "solar/channel", msgInDateFgSelected }};
+outChannelBadgeIcon: icon {{ "solar/channel", msgOutDateFg }};
+outChannelBadgeSelectedIcon: icon {{ "solar/channel", msgOutDateFgSelected }};
+
+infoSolarOfficialBadge: icon {{ "solar/solar_official", profileVerifiedCheckBg }};
+infoSolarSupporterBadge: icon {{ "solar/solar_badge", profileVerifiedCheckBg }};
+
+winEnterWithGuestIcon: icon {{ "solar/ghost_tray", windowFg }};
+
+editedIcon: IconEmoji{
+    icon: icon{{ "solar/edited", windowFg }};
+    padding: margins(0px, 0px, 0px, 0px);
+    useIconColor: false;
+}
+
+deletedIcon: IconEmoji{
+    icon: icon{{ "solar/trash_bin", windowFg }};
+    padding: margins(0px, 0px, 0px, 0px);
+    useIconColor: false;
+}
+
+burntIcon: IconEmoji{
+    icon: icon{{ "solar/burnt", windowFg }};
+    padding: margins(0px, 0px, 0px, 0px);
+    useIconColor: false;
+}
+
+dialogsSolarOfficialIcon: ThreeStateIcon {
+	icon: icon {{ "solar/dialogs_solar_official", dialogsVerifiedIconBg }};
+	over: icon {{ "solar/dialogs_solar_official", dialogsVerifiedIconBgOver }};
+	active: icon {{ "solar/dialogs_solar_official", dialogsVerifiedIconBgActive }};
+}
+dialogsSolarSupporterIcon: ThreeStateIcon {
+	icon: icon {{ "solar/dialogs_solar_supporter", dialogsVerifiedIconBg }};
+	over: icon {{ "solar/dialogs_solar_supporter", dialogsVerifiedIconBgOver }};
+	active: icon {{ "solar/dialogs_solar_supporter", dialogsVerifiedIconBgActive }};
+}
+
+solarHistoryFileInPlugin: icon {{ "solar/history_file_plugin", historyFileInIconFg }};
+solarHistoryFileInPluginSelected: icon {{ "solar/history_file_plugin", historyFileInIconFgSelected }};
+solarHistoryFileOutPlugin: icon {{ "solar/history_file_plugin", historyFileOutIconFg }};
+solarHistoryFileOutPluginSelected: icon {{ "solar/history_file_plugin", historyFileOutIconFgSelected }};
+
+menuIconClearAttention: icon {{ "menu/clear", menuIconAttentionColor }};

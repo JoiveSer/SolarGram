@@ -1,0 +1,14 @@
+<RCC>
+    <qresource prefix="/gui">
+        <file alias="art/solar/default/app.svg">../../art/solar/default/app.svg</file>
+        <file alias="art/solar/default/app_icon.ico">../../art/solar/default/app_icon.ico</file>
+        <file alias="art/solar/emblem/app.png">../../art/solar/emblem/app.png</file>
+        <file alias="art/solar/emblem/app_icon.ico">../../art/solar/emblem/app_icon.ico</file>
+        <file alias="art/solar/obsidian/app.svg">../../art/solar/obsidian/app.svg</file>
+        <file alias="art/solar/obsidian/app_icon.ico">../../art/solar/obsidian/app_icon.ico</file>
+        <file alias="art/solar/nova/app.svg">../../art/solar/nova/app.svg</file>
+        <file alias="art/solar/nova/app_icon.ico">../../art/solar/nova/app_icon.ico</file>
+        <file alias="icons/solar/nocover.svg">../../icons/solar/nocover.svg</file>
+        <file alias="icons/solar/about_logo.svg">../../icons/solar/about_logo.svg</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,22 @@
+[Desktop Entry]
+Name=SolarGram Desktop
+Comment=SolarGram Desktop - privacy-hardened Telegram combine client
+TryExec=SolarGram
+Exec=env DESKTOPINTEGRATION=1 SolarGram -- %U
+Icon=com.solargram.desktop
+Terminal=false
+StartupWMClass=SolarGram
+Type=Application
+Categories=Chat;Network;InstantMessaging;Qt;
+MimeType=x-scheme-handler/tg;x-scheme-handler/tonsite;
+Keywords=tg;chat;im;messaging;messenger;sms;telegram;tdesktop;
+Actions=quit;
+DBusActivatable=true
+SingleMainWindow=true
+X-GNOME-UsesNotifications=true
+X-GNOME-SingleWindow=true
+
+[Desktop Action quit]
+Exec=SolarGram -quit
+Name=Quit SolarGram
+Icon=application-exit

@@ -1,0 +1,29 @@
+<svg width="1200" height="1200" viewBox="0 0 1200 1200" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="solGrad" x1="200" y1="200" x2="1000" y2="1000" gradientUnits="userSpaceOnUse">
+<stop offset="0%" stop-color="#FF6B6B"/>
+<stop offset="45%" stop-color="#EE5A24"/>
+<stop offset="100%" stop-color="#B33771"/>
+</linearGradient>
+<linearGradient id="ringGrad" x1="150" y1="750" x2="950" y2="450" gradientUnits="userSpaceOnUse">
+<stop offset="0%" stop-color="#F8EFBA" stop-opacity="0.95"/>
+<stop offset="60%" stop-color="#EE5A24" stop-opacity="0.8"/>
+<stop offset="100%" stop-color="#B33771" stop-opacity="0.1"/>
+</linearGradient>
+<linearGradient id="planeGrad" x1="750" y1="150" x2="1050" y2="450" gradientUnits="userSpaceOnUse">
+<stop offset="0%" stop-color="#FFFDF5"/>
+<stop offset="100%" stop-color="#FFEAA7"/>
+</linearGradient>
+<clipPath id="solarClip">
+<rect width="1200" height="1200" rx="600" fill="white"/>
+</clipPath>
+</defs>
+<g clip-path="url(#solarClip)">
+<rect width="1200" height="1200" rx="600" fill="#1A0F14"/>
+<path d="M220 780 C180 880 320 940 540 920 C780 900 960 760 970 650 C980 560 880 540 800 560 C760 570 750 590 770 600 C830 620 900 640 890 690 C870 760 730 840 530 850 C360 860 250 820 270 750 Z" fill="url(#ringGrad)"/>
+<path d="M680 230 C500 210 380 320 370 460 C360 570 440 640 560 700 C680 760 750 820 740 900 C730 980 640 1020 520 1000 C400 980 340 900 330 830 C325 800 300 790 280 810 C260 830 270 870 290 910 C330 990 420 1060 550 1070 C720 1080 830 980 840 860 C850 740 760 670 640 610 C520 550 460 490 470 420 C480 350 560 300 670 310 C750 320 810 370 820 420 C825 450 850 460 870 440 C890 420 880 370 850 330 C810 270 750 235 680 230 Z" fill="url(#solGrad)"/>
+<path d="M200 680 C260 560 480 470 720 440 C860 420 950 440 940 480 C930 510 870 515 780 520 C570 530 380 590 290 680 C240 730 210 740 200 680 Z" fill="url(#ringGrad)"/>
+<path d="M780 380 L1020 180 L880 430 Z" fill="url(#planeGrad)"/>
+<path d="M1020 180 L960 420 L910 370 Z" fill="#FFEAA7"/>
+<path d="M880 430 L910 370 L960 420 Z" fill="#EE5A24"/>
+</g>

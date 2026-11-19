@@ -109,6 +109,15 @@ def main() -> None:
     ):
         changed += 1
 
+    # 5. cmake: external/qt/CMakeLists.txt -> Qt 6.11+ QDnsLookup on Windows requires Dnsapi.lib
+    qt_cmake = os.path.join(os.path.dirname(TELEGRAM_DIR), "cmake", "external", "qt", "CMakeLists.txt")
+    if os.path.isfile(qt_cmake):
+        with open(qt_cmake, "r", encoding="utf-8", errors="ignore") as fh:
+            qt_content = fh.read()
+        if "            Authz\n" in qt_content and "            Dnsapi\n" not in qt_content:
+            if patch_file(qt_cmake, [("            Authz\n", "            Authz\n            Dnsapi\n")]):
+                changed += 1
+
     print(f"[solar_patch_submodules] Patched {changed} submodule item(s).")
 
 

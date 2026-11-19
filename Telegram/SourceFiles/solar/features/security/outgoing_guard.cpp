@@ -2,7 +2,7 @@
 // Built on Telegram Desktop under GNU GPLv3.
 #include "solar/features/security/outgoing_guard.h"
 
-#include "base/crl/crl_time.h"
+#include <crl/crl_time.h>
 #include "ui/text/text_entity.h"
 
 #include <QRegularExpression>

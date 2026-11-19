@@ -53,9 +53,8 @@ void BuildProjectLinks(SectionBuilder &builder) {
 		},
 	});
 	builder.addSkip();
-	builder.addDividerText(rpl::single(TextWithEntities{
-		QString("SolarGram runs strictly without third-party telemetry, external language CDNs, or hidden endpoints.")
-	}));
+	builder.addDividerText(rpl::single(
+		u"SolarGram runs strictly without third-party telemetry, external language CDNs, or hidden endpoints."_q));
 }
 
 void BuildCrashReporting(SectionBuilder &builder, SolarSectionBuilder &solar) {

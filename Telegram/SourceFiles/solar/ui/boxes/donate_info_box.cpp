@@ -2,7 +2,7 @@
 // Built on Telegram Desktop under GNU GPLv3.
 #include "solar/ui/boxes/donate_info_box.h"
 
-#include "lang_auto.h"
+#include "lang/lang_keys.h"
 #include "core/ui_integration.h"
 #include "core/version.h"
 #include "info/profile/info_profile_icon.h"
@@ -11,6 +11,7 @@
 #include "styles/style_giveaway.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_premium.h"
 #include "styles/style_settings.h"
 #include "styles/style_widgets.h"
 #include "ui/painter.h"

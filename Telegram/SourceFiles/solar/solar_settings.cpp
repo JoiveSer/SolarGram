@@ -17,8 +17,13 @@
 #include "rpl/combine.h"
 #include "window/window_controller.h"
 
+#include <algorithm>
 #include <fstream>
+#include <mutex>
+#include <vector>
 #include <QApplication>
+#include <QtCore/QCryptographicHash>
+#include <QtCore/QJsonDocument>
 
 using json = nlohmann::json;
 
@@ -35,6 +40,40 @@ void repaintApp() {
 }
 
 rpl::lifetime lifetime; // idk reactivity dies when placed in `GhostModeAccountSettings` as field
+
+QString hashPartisanPin(const QString &pin) {
+	if (pin.isEmpty()) {
+		return QString();
+	}
+	const auto salted = QByteArray("solargram_partisan_v1:") + pin.toUtf8();
+	return QString::fromLatin1(
+		QCryptographicHash::hash(salted, QCryptographicHash::Sha256).toHex());
+}
+
+std::mutex &spoofSnapshotMutex() {
+	static std::mutex mutex;
+	return mutex;
+}
+
+SolarSettings::DeviceSpoofSnapshot &cachedSpoofSnapshot() {
+	static SolarSettings::DeviceSpoofSnapshot snapshot;
+	return snapshot;
+}
+
+void updateSpoofSnapshot(
+		bool enabled,
+		const QString &model,
+		const QString &system,
+		const QString &appVersion,
+		const QString &langCode) {
+	std::lock_guard lock(spoofSnapshotMutex());
+	auto &s = cachedSpoofSnapshot();
+	s.enabled = enabled;
+	s.model = model;
+	s.system = system;
+	s.appVersion = appVersion;
+	s.langCode = langCode;
+}
 
 } // namespace
 
@@ -91,6 +130,12 @@ void GhostModeAccountSettings::setSendUploadProgress(bool val) {
 void GhostModeAccountSettings::setSendOfflinePacketAfterOnline(bool val) {
 	if (_sendOfflinePacketAfterOnline.current() == val) return;
 	_sendOfflinePacketAfterOnline = val;
+	SolarSettings::save();
+}
+
+void GhostModeAccountSettings::setOnlineBlink(bool val) {
+	if (_onlineBlink.current() == val) return;
+	_onlineBlink = val;
 	SolarSettings::save();
 }
 
@@ -185,6 +230,7 @@ void to_json(nlohmann::json &j, const GhostModeAccountSettings &s) {
 		{"sendOnlinePackets", s._sendOnlinePackets.current()},
 		{"sendUploadProgress", s._sendUploadProgress.current()},
 		{"sendOfflinePacketAfterOnline", s._sendOfflinePacketAfterOnline.current()},
+		{"onlineBlink", s._onlineBlink.current()},
 		{"markReadAfterAction", s._markReadAfterAction.current()},
 		{"useScheduledMessages", s._useScheduledMessages.current()},
 		{"sendWithoutSound", s._sendWithoutSound.current()},
@@ -203,6 +249,7 @@ void from_json(const nlohmann::json &j, GhostModeAccountSettings &s) {
 	s._sendOnlinePackets = j.value("sendOnlinePackets", true);
 	s._sendUploadProgress = j.value("sendUploadProgress", true);
 	s._sendOfflinePacketAfterOnline = j.value("sendOfflinePacketAfterOnline", false);
+	s._onlineBlink = j.value("onlineBlink", false);
 	s._markReadAfterAction = j.value("markReadAfterAction", true);
 	s._useScheduledMessages = j.value("useScheduledMessages", false);
 	const auto sendWithoutSound = j.find("sendWithoutSound");
@@ -423,8 +470,19 @@ void SolarSettings::save() {
 }
 
 void SolarSettings::reset() {
-	getInstance() = SolarSettings();
+	auto &inst = getInstance();
+	inst = SolarSettings();
+	updateSpoofSnapshot(
+		inst._deviceSpoofEnabled.current(),
+		inst._deviceSpoofModel.current(),
+		inst._deviceSpoofSystem.current(),
+		inst._deviceSpoofAppVersion.current(),
+		inst._deviceSpoofLangCode.current());
+	inst._hiddenChatsVersion = 1;
+	FiltersCacheController::rebuildCache();
+	FiltersCacheController::fireUpdate();
 	save();
+	repaintApp();
 }
 
 GhostModeAccountSettings &SolarSettings::ghost(not_null<Main::Session*> session) {
@@ -475,6 +533,325 @@ void SolarSettings::removeShadowBan(int64 id) {
 	}
 }
 
+void SolarSettings::setSavingExcluded(int64 dialogId, bool excluded) {
+	if (excluded) {
+		if (_savingExclusions.insert(dialogId).second) {
+			_savingExclusionsVersion = _savingExclusionsVersion.current() + 1;
+			save();
+		}
+	} else {
+		if (_savingExclusions.erase(dialogId) > 0) {
+			_savingExclusionsVersion = _savingExclusionsVersion.current() + 1;
+			save();
+		}
+	}
+}
+
+void SolarSettings::setReadExclusion(int64 dialogId, ChatExclusionMode mode) {
+	if (mode == ChatExclusionMode::GlobalDefault) {
+		if (_readExclusions.erase(dialogId) > 0) {
+			save();
+		}
+	} else {
+		auto &slot = _readExclusions[dialogId];
+		if (slot != mode) {
+			slot = mode;
+			save();
+		}
+	}
+}
+
+ChatExclusionMode SolarSettings::readExclusion(int64 dialogId) const {
+	const auto it = _readExclusions.find(dialogId);
+	return (it != _readExclusions.end()) ? it->second : ChatExclusionMode::GlobalDefault;
+}
+
+bool SolarSettings::effectiveShouldRead(not_null<Main::Session*> session, int64 dialogId) const {
+	return effectiveShouldRead(session->userId().bare, dialogId);
+}
+
+bool SolarSettings::effectiveShouldRead(uint64 userId, int64 dialogId) const {
+	switch (readExclusion(dialogId)) {
+	case ChatExclusionMode::ForceAllow:
+		return true;
+	case ChatExclusionMode::ForceBlock:
+		return false;
+	case ChatExclusionMode::GlobalDefault:
+		break;
+	}
+	switch (perChatGhostPolicy(dialogId).readMessages) {
+	case ChatExclusionMode::ForceAllow:
+		return true;
+	case ChatExclusionMode::ForceBlock:
+		return false;
+	case ChatExclusionMode::GlobalDefault:
+		break;
+	}
+	return ghost(userId).sendReadMessages();
+}
+
+void SolarSettings::setTypingExclusion(int64 dialogId, ChatExclusionMode mode) {
+	if (mode == ChatExclusionMode::GlobalDefault) {
+		if (_typingExclusions.erase(dialogId) > 0) {
+			save();
+		}
+	} else {
+		auto &slot = _typingExclusions[dialogId];
+		if (slot != mode) {
+			slot = mode;
+			save();
+		}
+	}
+}
+
+ChatExclusionMode SolarSettings::typingExclusion(int64 dialogId) const {
+	const auto it = _typingExclusions.find(dialogId);
+	return (it != _typingExclusions.end()) ? it->second : ChatExclusionMode::GlobalDefault;
+}
+
+bool SolarSettings::effectiveShouldSendTyping(not_null<Main::Session*> session, int64 dialogId) const {
+	return effectiveShouldSendTyping(session->userId().bare, dialogId);
+}
+
+bool SolarSettings::effectiveShouldSendTyping(uint64 userId, int64 dialogId) const {
+	switch (typingExclusion(dialogId)) {
+	case ChatExclusionMode::ForceAllow:
+		return true;
+	case ChatExclusionMode::ForceBlock:
+		return false;
+	case ChatExclusionMode::GlobalDefault:
+		break;
+	}
+	switch (perChatGhostPolicy(dialogId).uploadProgress) {
+	case ChatExclusionMode::ForceAllow:
+		return true;
+	case ChatExclusionMode::ForceBlock:
+		return false;
+	case ChatExclusionMode::GlobalDefault:
+		break;
+	}
+	return ghost(userId).sendUploadProgress();
+}
+
+void SolarSettings::setPerChatGhostPolicy(
+		int64 dialogId,
+		const PerChatGhostPolicy &policy) {
+	const auto isDefault = (policy == PerChatGhostPolicy{});
+	if (isDefault) {
+		if (_perChatGhost.erase(dialogId) > 0) {
+			save();
+		}
+	} else {
+		auto &slot = _perChatGhost[dialogId];
+		if (slot != policy) {
+			slot = policy;
+			save();
+		}
+	}
+}
+
+PerChatGhostPolicy SolarSettings::perChatGhostPolicy(int64 dialogId) const {
+	const auto it = _perChatGhost.find(dialogId);
+	return (it != _perChatGhost.end()) ? it->second : PerChatGhostPolicy{};
+}
+
+bool SolarSettings::effectiveShouldReadStories(
+		not_null<Main::Session*> session,
+		int64 dialogId) const {
+	switch (perChatGhostPolicy(dialogId).readStories) {
+	case ChatExclusionMode::ForceAllow:
+		return true;
+	case ChatExclusionMode::ForceBlock:
+		return false;
+	case ChatExclusionMode::GlobalDefault:
+		break;
+	}
+	return ghost(session).sendReadStories();
+}
+
+bool SolarSettings::effectiveShouldSendOnline(
+		not_null<Main::Session*> session,
+		int64 dialogId) const {
+	switch (perChatGhostPolicy(dialogId).onlinePackets) {
+	case ChatExclusionMode::ForceAllow:
+		return true;
+	case ChatExclusionMode::ForceBlock:
+		return false;
+	case ChatExclusionMode::GlobalDefault:
+		break;
+	}
+	return ghost(session).sendOnlinePackets();
+}
+
+bool SolarSettings::effectiveShouldOfflineAfterOnline(
+		not_null<Main::Session*> session,
+		int64 dialogId) const {
+	switch (perChatGhostPolicy(dialogId).offlineAfterOnline) {
+	case ChatExclusionMode::ForceAllow:
+		return true;
+	case ChatExclusionMode::ForceBlock:
+		return false;
+	case ChatExclusionMode::GlobalDefault:
+		break;
+	}
+	return ghost(session).sendOfflinePacketAfterOnline();
+}
+
+void SolarSettings::setPeerWatched(int64 dialogId, bool watched) {
+	if (watched) {
+		if (_watchedPeerIds.insert(dialogId).second) {
+			save();
+		}
+	} else if (_watchedPeerIds.erase(dialogId) > 0) {
+		save();
+	}
+}
+
+void SolarSettings::pushRecentChat(int64 peerId) {
+	if (!peerId) {
+		return;
+	}
+	constexpr auto kMaxRecentChats = size_t(50);
+	std::erase(_recentChatIds, peerId);
+	_recentChatIds.insert(_recentChatIds.begin(), peerId);
+	if (_recentChatIds.size() > kMaxRecentChats) {
+		_recentChatIds.resize(kMaxRecentChats);
+	}
+	save();
+}
+
+void SolarSettings::clearRecentChats() {
+	if (_recentChatIds.empty()) {
+		return;
+	}
+	_recentChatIds.clear();
+	save();
+}
+
+void SolarSettings::setDuressPin(const QString &pin) {
+	_duressPinHash = hashPartisanPin(pin);
+	save();
+}
+
+void SolarSettings::clearDuressPin() {
+	if (_duressPinHash.current().isEmpty()) {
+		return;
+	}
+	_duressPinHash = QString();
+	_decoyModeActive = false;
+	save();
+}
+
+bool SolarSettings::verifyDuressPin(const QString &pin) const {
+	const auto &stored = _duressPinHash.current();
+	if (stored.isEmpty() || pin.isEmpty()) {
+		return false;
+	}
+	return stored == hashPartisanPin(pin);
+}
+
+void SolarSettings::setDecoyModeActive(bool active) {
+	if (_decoyModeActive.current() == active) {
+		return;
+	}
+	_decoyModeActive = active;
+	repaintApp();
+}
+
+void SolarSettings::setHiddenChatsPin(const QString &pin) {
+	_hiddenChatsPinHash = hashPartisanPin(pin);
+	save();
+}
+
+void SolarSettings::clearHiddenChatsPin() {
+	if (_hiddenChatsPinHash.current().isEmpty() && _hiddenChatIds.empty()) {
+		return;
+	}
+	_hiddenChatsPinHash = QString();
+	_hiddenChatIds.clear();
+	_hiddenChatsRevealed = false;
+	_hiddenChatsVersion = _hiddenChatsVersion.current() + 1;
+	FiltersCacheController::rebuildCache();
+	FiltersCacheController::fireUpdate();
+	save();
+}
+
+bool SolarSettings::verifyHiddenChatsPin(const QString &pin) const {
+	const auto &stored = _hiddenChatsPinHash.current();
+	if (stored.isEmpty() || pin.isEmpty()) {
+		return false;
+	}
+	return stored == hashPartisanPin(pin);
+}
+
+void SolarSettings::hideChat(int64 id) {
+	if (_hiddenChatIds.insert(id).second) {
+		_hiddenChatsVersion = _hiddenChatsVersion.current() + 1;
+		FiltersCacheController::rebuildCache();
+		FiltersCacheController::fireUpdate();
+		save();
+	}
+}
+
+void SolarSettings::unhideChat(int64 id) {
+	if (_hiddenChatIds.erase(id) > 0) {
+		_hiddenChatsVersion = _hiddenChatsVersion.current() + 1;
+		FiltersCacheController::rebuildCache();
+		FiltersCacheController::fireUpdate();
+		save();
+	}
+}
+
+void SolarSettings::setHiddenChatsRevealed(bool revealed) {
+	if (_hiddenChatsRevealed.current() == revealed) {
+		return;
+	}
+	_hiddenChatsRevealed = revealed;
+	_hiddenChatsVersion = _hiddenChatsVersion.current() + 1;
+	FiltersCacheController::rebuildCache();
+	FiltersCacheController::fireUpdate();
+	repaintApp();
+}
+
+QJsonObject SolarSettings::exportToJsonObject() const {
+	nlohmann::json j = *this;
+	j.erase("duressPinHash");
+	j.erase("hiddenChatsPinHash");
+	const auto raw = QByteArray::fromStdString(j.dump());
+	return QJsonDocument::fromJson(raw).object();
+}
+
+bool SolarSettings::importFromJsonObject(const QJsonObject &obj) {
+	try {
+		const auto raw = QJsonDocument(obj).toJson(QJsonDocument::Compact).toStdString();
+		const auto j = nlohmann::json::parse(raw);
+		const auto savedDuress = _duressPinHash.current();
+		const auto savedHiddenPin = _hiddenChatsPinHash.current();
+		from_json(j, *this);
+		if (!j.contains("duressPinHash") && !savedDuress.isEmpty()) {
+			_duressPinHash = savedDuress;
+		}
+		if (!j.contains("hiddenChatsPinHash") && !savedHiddenPin.isEmpty()) {
+			_hiddenChatsPinHash = savedHiddenPin;
+		}
+		validate();
+		_hiddenChatsVersion = _hiddenChatsVersion.current() + 1;
+		updateSpoofSnapshot(
+			_deviceSpoofEnabled.current(),
+			_deviceSpoofModel.current(),
+			_deviceSpoofSystem.current(),
+			_deviceSpoofAppVersion.current(),
+			_deviceSpoofLangCode.current());
+		FiltersCacheController::rebuildCache();
+		FiltersCacheController::fireUpdate();
+		save();
+		repaintApp();
+		return true;
+	} catch (...) {
+		return false;
+	}
+}
+
 void SolarSettings::validate() {
 	SolarSettings defaults;
 	auto modified = false;
@@ -504,7 +881,7 @@ void SolarSettings::validate() {
 	validateEnum(_showRepeatMessageInContextMenu, defaults._showRepeatMessageInContextMenu);
 	validateEnum(_showAddFilterInContextMenu, defaults._showAddFilterInContextMenu);
 
-	validateEnum(_translationProvider, defaults._translationProvider, 3);
+	validateEnum(_translationProvider, defaults._translationProvider, 6);
 	if ((_translationProvider.current() == TranslationProvider::Native)
 		&& !Platform::IsTranslateProviderAvailable()) {
 		_translationProvider = defaults._translationProvider.current();
@@ -514,6 +891,9 @@ void SolarSettings::validate() {
 	validateRange(_messageBubbleRadius, 0, 16, defaults._messageBubbleRadius);
 	validateRange(_wideMultiplier, 0.5, 4.0, defaults._wideMultiplier);
 	validateRange(_avatarCorners, 0, SolarUiSettings::kMaxAvatarCorners, defaults._avatarCorners);
+	validateEnum(_deletedSaveMode, defaults._deletedSaveMode, 2);
+	validateEnum(_duressAction, defaults._duressAction, 1);
+	validateRange(_attachmentsMaxSizeMb, 128, 65536, defaults._attachmentsMaxSizeMb);
 
 	const auto &icon = _appIcon.current();
 	if (icon != SolarAssets::DEFAULT_ICON
@@ -537,9 +917,24 @@ void SolarSettings::validate() {
 	}
 }
 
+void SolarSettings::setDeletedSaveMode(DeletedSaveMode val) {
+	if (_deletedSaveMode.current() == val) return;
+	_deletedSaveMode = val;
+	_saveDeletedMessages = (val != DeletedSaveMode::Off);
+	save();
+}
+
 void SolarSettings::setSaveDeletedMessages(bool val) {
-	if (_saveDeletedMessages.current() == val) return;
+	const auto nextMode = val
+		? ((_deletedSaveMode.current() == DeletedSaveMode::Off)
+			? DeletedSaveMode::Persistent
+			: _deletedSaveMode.current())
+		: DeletedSaveMode::Off;
+	if (_saveDeletedMessages.current() == val && _deletedSaveMode.current() == nextMode) {
+		return;
+	}
 	_saveDeletedMessages = val;
+	_deletedSaveMode = nextMode;
 	save();
 }
 
@@ -1151,10 +1546,334 @@ void SolarSettings::setSolarBrainModel(const QString &val) {
 	save();
 }
 
+void SolarSettings::setSaveMediaPrivate(bool val) {
+	if (_saveMediaPrivate.current() == val) return;
+	_saveMediaPrivate = val;
+	save();
+}
+
+void SolarSettings::setSaveMediaGroups(bool val) {
+	if (_saveMediaGroups.current() == val) return;
+	_saveMediaGroups = val;
+	save();
+}
+
+void SolarSettings::setSaveMediaChannels(bool val) {
+	if (_saveMediaChannels.current() == val) return;
+	_saveMediaChannels = val;
+	save();
+}
+
+void SolarSettings::setSaveMediaBots(bool val) {
+	if (_saveMediaBots.current() == val) return;
+	_saveMediaBots = val;
+	save();
+}
+
+void SolarSettings::setSaveMediaStickers(bool val) {
+	if (_saveMediaStickers.current() == val) return;
+	_saveMediaStickers = val;
+	save();
+}
+
+void SolarSettings::setAttachmentsMaxSizeMb(int val) {
+	if (_attachmentsMaxSizeMb.current() == val) return;
+	_attachmentsMaxSizeMb = val;
+	save();
+}
+
+void SolarSettings::setKeepOneViewMedia(bool val) {
+	if (_keepOneViewMedia.current() == val) return;
+	_keepOneViewMedia = val;
+	save();
+}
+
+void SolarSettings::setSpySaveReadMarks(bool val) {
+	if (_spySaveReadMarks.current() == val) return;
+	_spySaveReadMarks = val;
+	save();
+}
+
+void SolarSettings::setSpySaveLocalOnline(bool val) {
+	if (_spySaveLocalOnline.current() == val) return;
+	_spySaveLocalOnline = val;
+	save();
+}
+
+void SolarSettings::setDisplayGhostStatus(bool val) {
+	if (_displayGhostStatus.current() == val) return;
+	_displayGhostStatus = val;
+	repaintApp();
+	save();
+}
+
+void SolarSettings::setGhostModeShortcut(const QString &val) {
+	if (_ghostModeShortcut.current() == val) return;
+	_ghostModeShortcut = val;
+	save();
+}
+
+void SolarSettings::setUploadSpeedBoost(bool val) {
+	if (_uploadSpeedBoost.current() == val) return;
+	_uploadSpeedBoost = val;
+	save();
+}
+
+void SolarSettings::setCopyUsernameAsLink(bool val) {
+	if (_copyUsernameAsLink.current() == val) return;
+	_copyUsernameAsLink = val;
+	save();
+}
+
+void SolarSettings::setWalMode(bool val) {
+	if (_walMode.current() == val) return;
+	_walMode = val;
+	save();
+}
+
+void SolarSettings::setMainFont(const QString &val) {
+	if (_mainFont.current() == val) return;
+	_mainFont = val;
+	save();
+}
+
+void SolarSettings::setDuressAction(DuressAction val) {
+	if (_duressAction.current() == val) return;
+	_duressAction = val;
+	save();
+}
+
+void SolarSettings::setGlobalHotkeysEnabled(bool val) {
+	if (_globalHotkeysEnabled.current() == val) return;
+	_globalHotkeysEnabled = val;
+	save();
+}
+
+void SolarSettings::setStreamerMaskPrivacy(bool val) {
+	if (_streamerMaskPrivacy.current() == val) return;
+	_streamerMaskPrivacy = val;
+	repaintApp();
+	save();
+}
+
+void SolarSettings::setStreamerMaskNotifications(bool val) {
+	if (_streamerMaskNotifications.current() == val) return;
+	_streamerMaskNotifications = val;
+	save();
+}
+
+void SolarSettings::setDeleteForAllByDefault(bool val) {
+	if (_deleteForAllByDefault.current() == val) return;
+	_deleteForAllByDefault = val;
+	save();
+}
+
+void SolarSettings::setShowAlwaysOnTopButton(bool val) {
+	if (_showAlwaysOnTopButton.current() == val) return;
+	_showAlwaysOnTopButton = val;
+	repaintApp();
+	save();
+}
+
+void SolarSettings::setSeekbarForRoundVideos(bool val) {
+	if (_seekbarForRoundVideos.current() == val) return;
+	_seekbarForRoundVideos = val;
+	save();
+}
+
+void SolarSettings::setTextReplacementsEnabled(bool val) {
+	if (_textReplacementsEnabled.current() == val) return;
+	_textReplacementsEnabled = val;
+	save();
+}
+
+void SolarSettings::setLocalFoldersEnabled(bool val) {
+	if (_localFoldersEnabled.current() == val) return;
+	_localFoldersEnabled = val;
+	repaintApp();
+	save();
+}
+
+void SolarSettings::setPresenceLoggerEnabled(bool val) {
+	if (_presenceLoggerEnabled.current() == val) return;
+	_presenceLoggerEnabled = val;
+	save();
+}
+
+void SolarSettings::setRememberLastSeen(bool val) {
+	if (_rememberLastSeen.current() == val) return;
+	_rememberLastSeen = val;
+	save();
+}
+
+void SolarSettings::setStripImageExif(bool val) {
+	if (_stripImageExif.current() == val) return;
+	_stripImageExif = val;
+	save();
+}
+
+void SolarSettings::setForcedCopy(bool val) {
+	if (_forcedCopy.current() == val) return;
+	_forcedCopy = val;
+	save();
+}
+
+void SolarSettings::setDeviceSpoofEnabled(bool val) {
+	if (_deviceSpoofEnabled.current() == val) return;
+	_deviceSpoofEnabled = val;
+	updateSpoofSnapshot(
+		val,
+		_deviceSpoofModel.current(),
+		_deviceSpoofSystem.current(),
+		_deviceSpoofAppVersion.current(),
+		_deviceSpoofLangCode.current());
+	save();
+}
+
+void SolarSettings::setDeviceSpoofModel(const QString &val) {
+	if (_deviceSpoofModel.current() == val) return;
+	_deviceSpoofModel = val;
+	updateSpoofSnapshot(
+		_deviceSpoofEnabled.current(),
+		val,
+		_deviceSpoofSystem.current(),
+		_deviceSpoofAppVersion.current(),
+		_deviceSpoofLangCode.current());
+	save();
+}
+
+void SolarSettings::setDeviceSpoofSystem(const QString &val) {
+	if (_deviceSpoofSystem.current() == val) return;
+	_deviceSpoofSystem = val;
+	updateSpoofSnapshot(
+		_deviceSpoofEnabled.current(),
+		_deviceSpoofModel.current(),
+		val,
+		_deviceSpoofAppVersion.current(),
+		_deviceSpoofLangCode.current());
+	save();
+}
+
+void SolarSettings::setDeviceSpoofAppVersion(const QString &val) {
+	if (_deviceSpoofAppVersion.current() == val) return;
+	_deviceSpoofAppVersion = val;
+	updateSpoofSnapshot(
+		_deviceSpoofEnabled.current(),
+		_deviceSpoofModel.current(),
+		_deviceSpoofSystem.current(),
+		val,
+		_deviceSpoofLangCode.current());
+	save();
+}
+
+void SolarSettings::setDeviceSpoofLangCode(const QString &val) {
+	if (_deviceSpoofLangCode.current() == val) return;
+	_deviceSpoofLangCode = val;
+	updateSpoofSnapshot(
+		_deviceSpoofEnabled.current(),
+		_deviceSpoofModel.current(),
+		_deviceSpoofSystem.current(),
+		_deviceSpoofAppVersion.current(),
+		val);
+	save();
+}
+
+void SolarSettings::setBlockExternalLookups(bool val) {
+	if (_blockExternalLookups.current() == val) return;
+	_blockExternalLookups = val;
+	save();
+}
+
+void SolarSettings::setRandomDownloadNames(bool val) {
+	if (_randomDownloadNames.current() == val) return;
+	_randomDownloadNames = val;
+	save();
+}
+
+void SolarSettings::setConfirmExternalLinks(bool val) {
+	if (_confirmExternalLinks.current() == val) return;
+	_confirmExternalLinks = val;
+	save();
+}
+
+void SolarSettings::setPhishingGuard(bool val) {
+	if (_phishingGuard.current() == val) return;
+	_phishingGuard = val;
+	save();
+}
+
+void SolarSettings::setPresenceOnlineAlerts(bool val) {
+	if (_presenceOnlineAlerts.current() == val) return;
+	_presenceOnlineAlerts = val;
+	save();
+}
+
+void SolarSettings::setDownloadSpeedBoost(bool val) {
+	if (_downloadSpeedBoost.current() == val) return;
+	_downloadSpeedBoost = val;
+	save();
+}
+
+void SolarSettings::setPanguSpacing(bool val) {
+	if (_panguSpacing.current() == val) return;
+	_panguSpacing = val;
+	save();
+}
+
+void SolarSettings::setStripForeignAgentDisclaimers(bool val) {
+	if (_stripForeignAgentDisclaimers.current() == val) return;
+	_stripForeignAgentDisclaimers = val;
+	save();
+}
+
+void SolarSettings::setHideBirthdays(bool val) {
+	if (_hideBirthdays.current() == val) return;
+	_hideBirthdays = val;
+	save();
+}
+
+void SolarSettings::setHideGiftsUi(bool val) {
+	if (_hideGiftsUi.current() == val) return;
+	_hideGiftsUi = val;
+	save();
+}
+
+void SolarSettings::setUnreadChatsFirst(bool val) {
+	if (_unreadChatsFirst.current() == val) return;
+	_unreadChatsFirst = val;
+	save();
+}
+
+SolarSettings::DeviceSpoofSnapshot SolarSettings::deviceSpoofSnapshot() const {
+	std::lock_guard lock(spoofSnapshotMutex());
+	return cachedSpoofSnapshot();
+}
+
 void to_json(nlohmann::json &j, const SolarSettings &s) {
 	auto ghostAccounts = nlohmann::json::object();
 	for (const auto &[key, value] : s._ghostAccounts) {
 		ghostAccounts[std::to_string(key)] = *value;
+	}
+
+	auto readExcl = nlohmann::json::object();
+	for (const auto &[key, value] : s._readExclusions) {
+		readExcl[std::to_string(key)] = static_cast<int>(value);
+	}
+
+	auto typingExcl = nlohmann::json::object();
+	for (const auto &[key, value] : s._typingExclusions) {
+		typingExcl[std::to_string(key)] = static_cast<int>(value);
+	}
+
+	auto perChatGhost = nlohmann::json::object();
+	for (const auto &[key, policy] : s._perChatGhost) {
+		perChatGhost[std::to_string(key)] = nlohmann::json::array({
+			static_cast<int>(policy.readMessages),
+			static_cast<int>(policy.readStories),
+			static_cast<int>(policy.onlinePackets),
+			static_cast<int>(policy.uploadProgress),
+			static_cast<int>(policy.offlineAfterOnline),
+		});
 	}
 
 	j = nlohmann::json{
@@ -1259,6 +1978,60 @@ void to_json(nlohmann::json &j, const SolarSettings &s) {
 		{"solarBrainEnabled", s._solarBrainEnabled.current()},
 		{"solarBrainEndpoint", s._solarBrainEndpoint.current()},
 		{"solarBrainModel", s._solarBrainModel.current()},
+		{"deletedSaveMode", s._deletedSaveMode.current()},
+		{"saveMediaPrivate", s._saveMediaPrivate.current()},
+		{"saveMediaGroups", s._saveMediaGroups.current()},
+		{"saveMediaChannels", s._saveMediaChannels.current()},
+		{"saveMediaBots", s._saveMediaBots.current()},
+		{"saveMediaStickers", s._saveMediaStickers.current()},
+		{"attachmentsMaxSizeMb", s._attachmentsMaxSizeMb.current()},
+		{"keepOneViewMedia", s._keepOneViewMedia.current()},
+		{"spySaveReadMarks", s._spySaveReadMarks.current()},
+		{"spySaveLocalOnline", s._spySaveLocalOnline.current()},
+		{"displayGhostStatus", s._displayGhostStatus.current()},
+		{"ghostModeShortcut", s._ghostModeShortcut.current()},
+		{"uploadSpeedBoost", s._uploadSpeedBoost.current()},
+		{"copyUsernameAsLink", s._copyUsernameAsLink.current()},
+		{"walMode", s._walMode.current()},
+		{"mainFont", s._mainFont.current()},
+		{"duressPinHash", s._duressPinHash.current()},
+		{"duressAction", s._duressAction.current()},
+		{"hiddenChatsPinHash", s._hiddenChatsPinHash.current()},
+		{"hiddenChatIds", s._hiddenChatIds},
+		{"globalHotkeysEnabled", s._globalHotkeysEnabled.current()},
+		{"streamerMaskPrivacy", s._streamerMaskPrivacy.current()},
+		{"streamerMaskNotifications", s._streamerMaskNotifications.current()},
+		{"deleteForAllByDefault", s._deleteForAllByDefault.current()},
+		{"showAlwaysOnTopButton", s._showAlwaysOnTopButton.current()},
+		{"seekbarForRoundVideos", s._seekbarForRoundVideos.current()},
+		{"textReplacementsEnabled", s._textReplacementsEnabled.current()},
+		{"localFoldersEnabled", s._localFoldersEnabled.current()},
+		{"presenceLoggerEnabled", s._presenceLoggerEnabled.current()},
+		{"rememberLastSeen", s._rememberLastSeen.current()},
+		{"stripImageExif", s._stripImageExif.current()},
+		{"forcedCopy", s._forcedCopy.current()},
+		{"deviceSpoofEnabled", s._deviceSpoofEnabled.current()},
+		{"deviceSpoofModel", s._deviceSpoofModel.current()},
+		{"deviceSpoofSystem", s._deviceSpoofSystem.current()},
+		{"deviceSpoofAppVersion", s._deviceSpoofAppVersion.current()},
+		{"deviceSpoofLangCode", s._deviceSpoofLangCode.current()},
+		{"blockExternalLookups", s._blockExternalLookups.current()},
+		{"randomDownloadNames", s._randomDownloadNames.current()},
+		{"confirmExternalLinks", s._confirmExternalLinks.current()},
+		{"phishingGuard", s._phishingGuard.current()},
+		{"presenceOnlineAlerts", s._presenceOnlineAlerts.current()},
+		{"downloadSpeedBoost", s._downloadSpeedBoost.current()},
+		{"panguSpacing", s._panguSpacing.current()},
+		{"stripForeignAgentDisclaimers", s._stripForeignAgentDisclaimers.current()},
+		{"hideBirthdays", s._hideBirthdays.current()},
+		{"hideGiftsUi", s._hideGiftsUi.current()},
+		{"unreadChatsFirst", s._unreadChatsFirst.current()},
+		{"savingExclusions", s._savingExclusions},
+		{"watchedPeerIds", s._watchedPeerIds},
+		{"recentChatIds", s._recentChatIds},
+		{"readExclusions", readExcl},
+		{"typingExclusions", typingExcl},
+		{"perChatGhost", perChatGhost},
 		{"messageShotSettings", s._messageShotSettings}
 	};
 }
@@ -1375,6 +2148,127 @@ void from_json(const nlohmann::json &j, SolarSettings &s) {
 	s._solarBrainEnabled = j.value("solarBrainEnabled", defaults._solarBrainEnabled.current());
 	s._solarBrainEndpoint = j.value("solarBrainEndpoint", defaults._solarBrainEndpoint.current());
 	s._solarBrainModel = j.value("solarBrainModel", defaults._solarBrainModel.current());
+
+	if (j.contains("deletedSaveMode")) {
+		s._deletedSaveMode = j.value("deletedSaveMode", defaults._deletedSaveMode.current());
+		s._saveDeletedMessages = (s._deletedSaveMode.current() != DeletedSaveMode::Off);
+	} else {
+		s._deletedSaveMode = s._saveDeletedMessages.current()
+			? DeletedSaveMode::Persistent
+			: DeletedSaveMode::Off;
+	}
+	s._saveMediaPrivate = j.value("saveMediaPrivate", defaults._saveMediaPrivate.current());
+	s._saveMediaGroups = j.value("saveMediaGroups", defaults._saveMediaGroups.current());
+	s._saveMediaChannels = j.value("saveMediaChannels", defaults._saveMediaChannels.current());
+	s._saveMediaBots = j.value("saveMediaBots", defaults._saveMediaBots.current());
+	s._saveMediaStickers = j.value("saveMediaStickers", defaults._saveMediaStickers.current());
+	s._attachmentsMaxSizeMb = j.value("attachmentsMaxSizeMb", defaults._attachmentsMaxSizeMb.current());
+	s._keepOneViewMedia = j.value("keepOneViewMedia", defaults._keepOneViewMedia.current());
+	s._spySaveReadMarks = j.value("spySaveReadMarks", defaults._spySaveReadMarks.current());
+	s._spySaveLocalOnline = j.value("spySaveLocalOnline", defaults._spySaveLocalOnline.current());
+	s._displayGhostStatus = j.value("displayGhostStatus", defaults._displayGhostStatus.current());
+	s._ghostModeShortcut = j.value("ghostModeShortcut", defaults._ghostModeShortcut.current());
+	s._uploadSpeedBoost = j.value("uploadSpeedBoost", defaults._uploadSpeedBoost.current());
+	s._copyUsernameAsLink = j.value("copyUsernameAsLink", defaults._copyUsernameAsLink.current());
+	s._walMode = j.value("walMode", defaults._walMode.current());
+	s._mainFont = j.value("mainFont", defaults._mainFont.current());
+	s._duressPinHash = j.value("duressPinHash", defaults._duressPinHash.current());
+	s._duressAction = j.value("duressAction", defaults._duressAction.current());
+	s._hiddenChatsPinHash = j.value("hiddenChatsPinHash", defaults._hiddenChatsPinHash.current());
+	s._hiddenChatIds = j.value("hiddenChatIds", defaults._hiddenChatIds);
+	s._globalHotkeysEnabled = j.value("globalHotkeysEnabled", defaults._globalHotkeysEnabled.current());
+	s._streamerMaskPrivacy = j.value("streamerMaskPrivacy", defaults._streamerMaskPrivacy.current());
+	s._streamerMaskNotifications = j.value("streamerMaskNotifications", defaults._streamerMaskNotifications.current());
+	s._deleteForAllByDefault = j.value("deleteForAllByDefault", defaults._deleteForAllByDefault.current());
+	s._showAlwaysOnTopButton = j.value("showAlwaysOnTopButton", defaults._showAlwaysOnTopButton.current());
+	s._seekbarForRoundVideos = j.value("seekbarForRoundVideos", defaults._seekbarForRoundVideos.current());
+	s._textReplacementsEnabled = j.value("textReplacementsEnabled", defaults._textReplacementsEnabled.current());
+	s._localFoldersEnabled = j.value("localFoldersEnabled", defaults._localFoldersEnabled.current());
+	s._presenceLoggerEnabled = j.value("presenceLoggerEnabled", defaults._presenceLoggerEnabled.current());
+	s._rememberLastSeen = j.value("rememberLastSeen", defaults._rememberLastSeen.current());
+	s._stripImageExif = j.value("stripImageExif", defaults._stripImageExif.current());
+	s._forcedCopy = j.value("forcedCopy", defaults._forcedCopy.current());
+	s._deviceSpoofEnabled = j.value("deviceSpoofEnabled", defaults._deviceSpoofEnabled.current());
+	s._deviceSpoofModel = j.value("deviceSpoofModel", defaults._deviceSpoofModel.current());
+	s._deviceSpoofSystem = j.value("deviceSpoofSystem", defaults._deviceSpoofSystem.current());
+	s._deviceSpoofAppVersion = j.value("deviceSpoofAppVersion", defaults._deviceSpoofAppVersion.current());
+	s._deviceSpoofLangCode = j.value("deviceSpoofLangCode", defaults._deviceSpoofLangCode.current());
+	updateSpoofSnapshot(
+		s._deviceSpoofEnabled.current(),
+		s._deviceSpoofModel.current(),
+		s._deviceSpoofSystem.current(),
+		s._deviceSpoofAppVersion.current(),
+		s._deviceSpoofLangCode.current());
+	s._blockExternalLookups = j.value("blockExternalLookups", defaults._blockExternalLookups.current());
+	s._randomDownloadNames = j.value("randomDownloadNames", defaults._randomDownloadNames.current());
+	s._confirmExternalLinks = j.value("confirmExternalLinks", defaults._confirmExternalLinks.current());
+	s._phishingGuard = j.value("phishingGuard", defaults._phishingGuard.current());
+	s._presenceOnlineAlerts = j.value("presenceOnlineAlerts", defaults._presenceOnlineAlerts.current());
+	s._downloadSpeedBoost = j.value("downloadSpeedBoost", defaults._downloadSpeedBoost.current());
+	s._panguSpacing = j.value("panguSpacing", defaults._panguSpacing.current());
+	s._stripForeignAgentDisclaimers = j.value("stripForeignAgentDisclaimers", defaults._stripForeignAgentDisclaimers.current());
+	s._hideBirthdays = j.value("hideBirthdays", defaults._hideBirthdays.current());
+	s._hideGiftsUi = j.value("hideGiftsUi", defaults._hideGiftsUi.current());
+	s._unreadChatsFirst = j.value("unreadChatsFirst", defaults._unreadChatsFirst.current());
+	s._savingExclusions = j.value("savingExclusions", defaults._savingExclusions);
+	s._watchedPeerIds = j.value("watchedPeerIds", defaults._watchedPeerIds);
+	s._recentChatIds = j.value("recentChatIds", defaults._recentChatIds);
+	if (s._recentChatIds.size() > 50) {
+		s._recentChatIds.resize(50);
+	}
+
+	s._readExclusions.clear();
+	if (j.contains("readExclusions") && j["readExclusions"].is_object()) {
+		for (const auto &[key, value] : j["readExclusions"].items()) {
+			try {
+				const auto id = static_cast<int64>(std::stoll(key));
+				const auto modeInt = value.get<int>();
+				if (modeInt >= 0 && modeInt <= 2) {
+					s._readExclusions[id] = static_cast<ChatExclusionMode>(modeInt);
+				}
+			} catch (...) {
+			}
+		}
+	}
+
+	s._typingExclusions.clear();
+	if (j.contains("typingExclusions") && j["typingExclusions"].is_object()) {
+		for (const auto &[key, value] : j["typingExclusions"].items()) {
+			try {
+				const auto id = static_cast<int64>(std::stoll(key));
+				const auto modeInt = value.get<int>();
+				if (modeInt >= 0 && modeInt <= 2) {
+					s._typingExclusions[id] = static_cast<ChatExclusionMode>(modeInt);
+				}
+			} catch (...) {
+			}
+		}
+	}
+
+	s._perChatGhost.clear();
+	if (j.contains("perChatGhost") && j["perChatGhost"].is_object()) {
+		const auto toMode = [](int v) {
+			return (v >= 0 && v <= 2)
+				? static_cast<ChatExclusionMode>(v)
+				: ChatExclusionMode::GlobalDefault;
+		};
+		for (const auto &[key, value] : j["perChatGhost"].items()) {
+			try {
+				if (!value.is_array() || value.size() != 5) {
+					continue;
+				}
+				const auto id = static_cast<int64>(std::stoll(key));
+				s._perChatGhost[id] = PerChatGhostPolicy{
+					.readMessages = toMode(value[0].get<int>()),
+					.readStories = toMode(value[1].get<int>()),
+					.onlinePackets = toMode(value[2].get<int>()),
+					.uploadProgress = toMode(value[3].get<int>()),
+					.offlineAfterOnline = toMode(value[4].get<int>()),
+				};
+			} catch (...) {
+			}
+		}
+	}
 
 	if (j.contains("messageShotSettings") && j["messageShotSettings"].is_object()) {
 		j["messageShotSettings"].get_to(s._messageShotSettings);

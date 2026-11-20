@@ -221,6 +221,8 @@ set(solargram_files
         solar/features/streamer_mode/streamer_mode.h
         solar/features/security/outgoing_guard.cpp
         solar/features/security/outgoing_guard.h
+        solar/features/hotkeys/solar_hotkeys.cpp
+        solar/features/hotkeys/solar_hotkeys.h
         solar/features/ai/solar_brain.cpp
         solar/features/ai/solar_brain.h
         solar/features/message_shot/message_shot.cpp
@@ -243,6 +245,8 @@ set(solargram_files
         solar/features/translator/implementations/google.h
         solar/features/translator/implementations/yandex.cpp
         solar/features/translator/implementations/yandex.h
+        solar/features/translator/implementations/extra.cpp
+        solar/features/translator/implementations/extra.h
         solar/features/translator/implementations/base.cpp
         solar/features/translator/implementations/base.h
         solar/features/filters/filters_controller.cpp

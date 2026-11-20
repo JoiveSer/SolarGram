@@ -56,6 +56,9 @@ std::unique_ptr<TranslateProvider> CreateTranslateProvider(
 	switch (provider) {
 	case TranslationProvider::Google:
 	case TranslationProvider::Yandex:
+	case TranslationProvider::DeepLX:
+	case TranslationProvider::TranSmart:
+	case TranslationProvider::SolarBrainLLM:
 		return CreateSolarTranslateProvider(session, provider);
 	case TranslationProvider::Native:
 		if (auto native = Platform::CreateTranslateProvider()) {

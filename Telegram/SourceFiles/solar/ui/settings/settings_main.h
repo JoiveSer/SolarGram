@@ -5,6 +5,10 @@
 #include "settings/settings_common.h"
 #include "settings/settings_common_session.h"
 
+namespace Ui {
+class GenericBox;
+} // namespace Ui
+
 namespace Window {
 class Controller;
 class SessionController;
@@ -23,5 +27,6 @@ private:
 };
 
 [[nodiscard]] Type SolarMainId();
+void FillSolarCreditsBox(not_null<Ui::GenericBox*> box);
 
 } // namespace Settings

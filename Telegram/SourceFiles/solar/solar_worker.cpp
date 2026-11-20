@@ -12,12 +12,29 @@
 #include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
+#include "solar/utils/telegram_helpers.h"
+#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 
 namespace SolarWorker {
 
 void runOnce();
 
 std::unordered_map<ID, bool> state;
+std::unordered_map<ID, crl::time> blinkUntil;
+
+[[nodiscard]] bool ShouldOfflineForSession(not_null<Main::Session*> session) {
+	if (const auto w = Core::App().activeWindow()) {
+		if (const auto c = w->sessionController(); c && &c->session() == session) {
+			if (const auto peer = c->activeChatCurrent().peer()) {
+				return SolarSettings::getInstance().effectiveShouldOfflineAfterOnline(
+					session,
+					getDialogIdFromPeer(peer));
+			}
+		}
+	}
+	return SolarSettings::ghost(session).sendOfflinePacketAfterOnline();
+}
 
 base::Timer &workerTimer() {
 	static base::Timer timer([] {
@@ -27,9 +44,17 @@ base::Timer &workerTimer() {
 }
 
 void markAsOnline(not_null<Main::Session*> session) {
-	state[session->userId().bare] = true;
+	const auto id = session->userId().bare;
+	state[id] = true;
+	const auto &ghost = SolarSettings::ghost(session);
+	if (ghost.onlineBlink() && ShouldOfflineForSession(session)) {
+		blinkUntil[id] = crl::now() + crl::time(1500);
+		session->api().request(MTPaccount_UpdateStatus(
+			MTP_bool(false)
+		)).send();
+	}
 	workerTimer().cancel();
-	workerTimer().callEach(3000);
+	workerTimer().callEach(1500);
 }
 
 void lateInit() {
@@ -60,9 +85,14 @@ void runOnce() {
 					state[id] = true;
 				}
 
-				const auto &ghost = SolarSettings::ghost(session);
-				if (!ghost.sendOfflinePacketAfterOnline()) {
+				if (!ShouldOfflineForSession(session)) {
 					continue;
+				}
+				if (const auto it = blinkUntil.find(id); it != blinkUntil.end()) {
+					if (crl::now() < it->second) {
+						continue;
+					}
+					blinkUntil.erase(it);
 				}
 
 				if (state[id] || session->user()->lastseen().isOnline(t)) {

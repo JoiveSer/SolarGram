@@ -1527,8 +1527,13 @@ void Reactions::send(not_null<HistoryItem*> item, bool addToRecent) {
 		_sentRequests.remove(id);
 		_owner->session().api().applyUpdates(result);
 
+		const auto &settings = SolarSettings::getInstance();
 		const auto &ghost = SolarSettings::ghost(&_owner->session());
-		if (!ghost.sendReadMessages() && ghost.markReadAfterAction() && item) {
+		if (item
+			&& !settings.effectiveShouldRead(
+				&_owner->session(),
+				getDialogIdFromPeer(item->history()->peer))
+			&& ghost.markReadAfterAction()) {
 			readHistory(item);
 		}
 	}).fail([=](const MTP::Error &error) {

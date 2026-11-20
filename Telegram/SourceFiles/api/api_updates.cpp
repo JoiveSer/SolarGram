@@ -53,6 +53,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_message_reactions.h"
 #include "inline_bots/bot_attach_web_view.h"
 #include "chat_helpers/emoji_interactions.h"
+#include "lang/lang_keys.h"
 #include "lang/lang_cloud_manager.h"
 #include "history/history.h"
 #include "history/history_item.h"
@@ -76,6 +77,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // SolarGram includes
 #include "solar/solar_settings.h"
 #include "solar/solar_worker.h"
+#include "solar/data/entities.h"
+#include "solar/data/solar_database.h"
+#include "solar/utils/telegram_helpers.h"
 
 
 namespace Api {
@@ -999,12 +1003,25 @@ void Updates::updateOnline(crl::time lastNonIdleTime, bool gotOtherOffline) {
 		Core::App().checkAutoLock(lastNonIdleTime);
 	});
 
-	// SolarGram sendOnlinePackets & Eternal Online
+	// SolarGram sendOnlinePackets & Eternal Online (with active-chat Per-Chat Ghost override)
 	const auto &ghost = SolarSettings::ghost(_session);
 	const auto& config = _session->serverConfig();
+	const auto activePeer = [&]() -> PeerData* {
+		if (const auto w = Core::App().activeWindow()) {
+			if (const auto c = w->sessionController(); c && &c->session() == _session) {
+				return c->activeChatCurrent().peer();
+			}
+		}
+		return nullptr;
+	}();
+	const auto allowOnlinePackets = activePeer
+		? SolarSettings::getInstance().effectiveShouldSendOnline(
+			_session,
+			getDialogIdFromPeer(activePeer))
+		: ghost.sendOnlinePackets();
 	bool isOnlineOrig = Core::App().hasActiveWindow(&session());
 	bool isOnline = SolarSettings::getInstance().eternalOnline()
-		|| (ghost.sendOnlinePackets() && isOnlineOrig);
+		|| (allowOnlinePackets && isOnlineOrig);
 
 	int updateIn = config.onlineUpdatePeriod;
 	Assert(updateIn >= 0);
@@ -1354,9 +1371,21 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 					_session->data().requestItemRepaint(item);
 
 					if (item->out()) {
-						const auto user = item->history()->peer->asUser();
-						if (user && !requestingDifference()) {
-							user->madeAction(base::unixtime::now());
+						const auto &solar = SolarSettings::getInstance();
+						if (solar.spySaveReadMarks()) {
+							SpyMessageContentsRead mark;
+							mark.fakeId = 0;
+							mark.userId = _session->userId().bare & PeerId::kChatTypeMask;
+							mark.dialogId = getDialogIdFromPeer(item->history()->peer);
+							mark.messageId = item->id.bare;
+							mark.entityCreateDate = readDate ? readDate : base::unixtime::now();
+							SolarDatabase::addSpyMessageContentsRead(mark);
+						}
+						if (solar.spySaveLocalOnline()) {
+							const auto user = item->history()->peer->asUser();
+							if (user && !requestingDifference()) {
+								user->madeAction(base::unixtime::now());
+							}
 						}
 					}
 					item->applyMediaContentsRead(readDate);
@@ -1386,7 +1415,17 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 		const auto peer = peerFromMTP(d.vpeer());
 		if (const auto history = _session->data().historyLoaded(peer)) {
 			history->outboxRead(d.vmax_id().v);
-			if (!requestingDifference()) {
+			const auto &solar = SolarSettings::getInstance();
+			if (solar.spySaveReadMarks()) {
+				SpyMessageRead mark;
+				mark.fakeId = 0;
+				mark.userId = _session->userId().bare & PeerId::kChatTypeMask;
+				mark.dialogId = getDialogIdFromPeer(peer);
+				mark.messageId = d.vmax_id().v;
+				mark.entityCreateDate = base::unixtime::now();
+				SolarDatabase::addSpyMessageRead(mark);
+			}
+			if (!requestingDifference() && solar.spySaveLocalOnline()) {
 				if (const auto user = history->peer->asUser()) {
 					user->madeAction(base::unixtime::now());
 				}
@@ -1725,6 +1764,15 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 			if (auto item = session().data().message(channel->id, msgId.v)) {
 				if (item->isUnreadMedia() || item->isUnreadMention()) {
 					item->markMediaAndMentionRead();
+					if (item->out() && SolarSettings::getInstance().spySaveReadMarks()) {
+						SpyMessageContentsRead mark;
+						mark.fakeId = 0;
+						mark.userId = session().userId().bare & PeerId::kChatTypeMask;
+						mark.dialogId = getDialogIdFromPeer(channel);
+						mark.messageId = item->id.bare;
+						mark.entityCreateDate = base::unixtime::now();
+						SolarDatabase::addSpyMessageContentsRead(mark);
+					}
 					session().data().requestItemRepaint(item);
 					item->applyMediaContentsRead(TimeId(0));
 				}
@@ -1836,7 +1884,17 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto peer = peerFromChannel(d.vchannel_id().v);
 		if (const auto history = session().data().historyLoaded(peer)) {
 			history->outboxRead(d.vmax_id().v);
-			if (!requestingDifference()) {
+			const auto &solar = SolarSettings::getInstance();
+			if (solar.spySaveReadMarks()) {
+				SpyMessageRead mark;
+				mark.fakeId = 0;
+				mark.userId = session().userId().bare & PeerId::kChatTypeMask;
+				mark.dialogId = getDialogIdFromPeer(peer);
+				mark.messageId = d.vmax_id().v;
+				mark.entityCreateDate = base::unixtime::now();
+				SolarDatabase::addSpyMessageRead(mark);
+			}
+			if (!requestingDifference() && solar.spySaveLocalOnline()) {
 				if (const auto user = history->peer->asUser()) {
 					user->madeAction(base::unixtime::now());
 				}
@@ -2077,7 +2135,41 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 	case mtpc_updateUserStatus: {
 		const auto &d = update.c_updateUserStatus();
 		if (const auto user = session().data().userLoaded(d.vuser_id())) {
-			const auto now = LastseenFromMTP(d.vstatus(), user->lastseen());
+			const auto prev = user->lastseen();
+			const auto now = LastseenFromMTP(d.vstatus(), prev);
+			if (!user->isSelf() && !user->isBot() && !user->isServiceUser()) {
+				const auto &solar = SolarSettings::getInstance();
+				const auto type = d.vstatus().type();
+				if (type == mtpc_userStatusOnline
+					&& prev.onlineTill() <= base::unixtime::now()
+					&& (solar.presenceOnlineAlerts()
+						|| solar.isPeerWatched(getDialogIdFromPeer(user)))) {
+					if (const auto window = Core::App().activeWindow()) {
+						window->showToast(tr::solar_OnlineAlertToast(
+							tr::now,
+							lt_name,
+							user->name()));
+					}
+				}
+				if (solar.presenceLoggerEnabled() || solar.rememberLastSeen()) {
+					const ID uid = session().userId().bare & PeerId::kChatTypeMask;
+					const ID pid = user->id.value & PeerId::kChatTypeMask;
+					if (type == mtpc_userStatusOnline) {
+						SolarDatabase::addSpyPresenceLog({
+							0, uid, pid, 0, base::unixtime::now(), "Online"
+						});
+					} else if (type == mtpc_userStatusOffline) {
+						const auto was = d.vstatus().c_userStatusOffline().vwas_online().v;
+						SolarDatabase::addSpyPresenceLog({
+							0, uid, pid, 1, was, "Offline"
+						});
+					} else if (now.isHidden() && prev.onlineTill() > 0) {
+						SolarDatabase::addSpyPresenceLog({
+							0, uid, pid, 5, prev.onlineTill(), "Last seen hidden"
+						});
+					}
+				}
+			}
 			if (user->updateLastseen(now)) {
 				session().changes().peerUpdated(
 					user,
@@ -2112,6 +2204,32 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 			const auto username = d.vusernames().v.isEmpty()
 				? QString()
 				: qs(d.vusernames().v.front().data().vusername());
+			if (!user->isSelf()
+				&& !user->isBot()
+				&& SolarSettings::getInstance().presenceLoggerEnabled()) {
+				QStringList changes;
+				const auto newFirst = TextUtilities::SingleLine(first);
+				const auto newLast = TextUtilities::SingleLine(last);
+				const auto newUser = TextUtilities::SingleLine(username);
+				if (user->firstName != newFirst || user->lastName != newLast) {
+					changes.push_back(u"Name: %1 %2 -> %3 %4"_q
+						.arg(user->firstName, user->lastName, newFirst, newLast).trimmed());
+				}
+				if (user->username() != newUser) {
+					changes.push_back(u"Username: @%1 -> @%2"_q
+						.arg(user->username(), newUser));
+				}
+				if (!changes.isEmpty()) {
+					SolarDatabase::addSpyPresenceLog({
+						0,
+						session().userId().bare & PeerId::kChatTypeMask,
+						user->id.value & PeerId::kChatTypeMask,
+						2,
+						base::unixtime::now(),
+						changes.join(u" | "_q).toStdString(),
+					});
+				}
+			}
 			user->setName(
 				TextUtilities::SingleLine(first),
 				TextUtilities::SingleLine(last),
@@ -2160,6 +2278,18 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		if (const auto user = session().data().userLoaded(d.vuser_id())) {
 			const auto newPhone = qs(d.vphone());
 			if (newPhone != user->phone()) {
+				if (!user->isSelf()
+					&& !user->isBot()
+					&& SolarSettings::getInstance().presenceLoggerEnabled()) {
+					SolarDatabase::addSpyPresenceLog({
+						0,
+						session().userId().bare & PeerId::kChatTypeMask,
+						user->id.value & PeerId::kChatTypeMask,
+						3,
+						base::unixtime::now(),
+						u"Phone changed"_q.toStdString(),
+					});
+				}
 				user->setPhone(newPhone);
 				user->setName(
 					user->firstName,

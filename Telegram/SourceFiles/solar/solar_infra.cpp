@@ -43,6 +43,7 @@ void initUiSettings() {
 
 void initDatabase() {
 	SolarDatabase::initialize();
+	SolarDatabase::setWalMode(SolarSettings::getInstance().walMode());
 }
 
 void initWorker() {

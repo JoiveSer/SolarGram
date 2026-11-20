@@ -8,9 +8,11 @@
 #include "solar/ui/settings/solar_builder.h"
 #include "solar/ui/settings/settings_solar_utils.h"
 #include "solar/ui/settings/settings_main.h"
+#include "base/options.h"
 #include "base/platform/base_platform_info.h"
 #include "core/application.h"
 #include "lang/lang_text_entity.h"
+#include "mtproto/session_private.h"
 #include "platform/platform_translate_provider.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
@@ -39,6 +41,9 @@ void BuildTranslator(SectionBuilder &builder, SolarSectionBuilder &solar) {
 		std::pair(TranslationProvider::Telegram, QString("Telegram")),
 		std::pair(TranslationProvider::Google, QString("Google")),
 		std::pair(TranslationProvider::Yandex, QString("Yandex")),
+		std::pair(TranslationProvider::DeepLX, QString("DeepLX")),
+		std::pair(TranslationProvider::TranSmart, QString("TranSmart")),
+		std::pair(TranslationProvider::SolarBrainLLM, QString("SolarBrain AI")),
 	};
 	const auto nativeAvailable = Platform::IsTranslateProviderAvailable();
 	auto availableOptions = options;
@@ -314,6 +319,58 @@ void BuildQoLToggles(SectionBuilder &builder, SolarSectionBuilder &solar) {
 		.title = tr::solar_AlwaysOnTop(),
 		.getter = &SolarSettings::alwaysOnTop,
 		.setter = &SolarSettings::setAlwaysOnTop,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/stripImageExif"_q,
+		.title = tr::solar_StripImageExif(),
+		.getter = &SolarSettings::stripImageExif,
+		.setter = &SolarSettings::setStripImageExif,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_StripImageExifAbout());
+	builder.addSkip();
+	solar.addSettingToggle({
+		.id = u"solar/forcedCopy"_q,
+		.title = tr::solar_ForcedCopy(),
+		.getter = &SolarSettings::forcedCopy,
+		.setter = &SolarSettings::setForcedCopy,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_ForcedCopyAbout());
+	builder.addSkip();
+	solar.addSettingToggle({
+		.id = u"solar/uploadSpeedBoost"_q,
+		.title = tr::solar_UploadSpeedBoost(),
+		.getter = &SolarSettings::uploadSpeedBoost,
+		.setter = &SolarSettings::setUploadSpeedBoost,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_UploadSpeedBoostAbout());
+	builder.addSkip();
+	solar.addSettingToggle({
+		.id = u"solar/downloadSpeedBoost"_q,
+		.title = tr::solar_DownloadSpeedBoost(),
+		.getter = &SolarSettings::downloadSpeedBoost,
+		.setter = &SolarSettings::setDownloadSpeedBoost,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_DownloadSpeedBoostAbout());
+	builder.addSkip();
+	solar.addSettingToggle({
+		.id = u"solar/randomDownloadNames"_q,
+		.title = tr::solar_RandomDownloadNames(),
+		.getter = &SolarSettings::randomDownloadNames,
+		.setter = &SolarSettings::setRandomDownloadNames,
+	});
+	solar.addToggle({
+		.id = u"solar/preferIPv6"_q,
+		.title = tr::solar_PreferIPv6(),
+		.getter = [] {
+			return base::options::lookup<bool>(MTP::details::kOptionPreferIPv6).value();
+		},
+		.setter = [](bool enabled) {
+			base::options::lookup<bool>(MTP::details::kOptionPreferIPv6).set(enabled);
+		},
 	});
 
 	solar.addSectionDivider();

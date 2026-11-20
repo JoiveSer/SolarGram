@@ -30,6 +30,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_layers.h"
 #include "styles/style_passcode_box.h"
 #include "styles/style_window_lock_widgets.h"
+#include "solar/solar_settings.h"
+#include "solar/data/messages_storage.h"
+#include "solar/data/solar_database.h"
 
 namespace Window {
 namespace {
@@ -50,10 +53,24 @@ PasscodeAttempt TryPasscode(const QString &passcode) {
 		? domain.local().checkPasscode(utf8)
 		: (domain.start(utf8) == Storage::StartResult::Success);
 	if (!correct) {
+		auto &solar = SolarSettings::getInstance();
+		if (solar.verifyDuressPin(passcode)) {
+			if (solar.duressAction() == DuressAction::SilentPanicWipe) {
+				SolarMessages::clearAllDeletedMessages();
+				SolarDatabase::clearSpyPresenceLogs(0, 0);
+				Core::Quit();
+				return PasscodeAttempt::Wrong;
+			}
+			if (domain.started()) {
+				solar.setDecoyModeActive(true);
+				return PasscodeAttempt::Correct;
+			}
+		}
 		cSetPasscodeBadTries(cPasscodeBadTries() + 1);
 		cSetPasscodeLastTry(crl::now());
 		return PasscodeAttempt::Wrong;
 	}
+	SolarSettings::getInstance().setDecoyModeActive(false);
 	return PasscodeAttempt::Correct;
 }
 

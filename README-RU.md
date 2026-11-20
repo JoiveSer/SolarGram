@@ -36,6 +36,32 @@
 ### 5. Локальный ИИ-помощник `SolarBrain`
 - Вызывается строго вручную из контекстного меню сообщения; работает с локальным **Ollama** (`http://127.0.0.1:11434/api/chat`) или настраиваемым OpenAI-совместимым API: **Резюме**, **3 варианта ответа**, **Улучшение тона**, **Объяснение и чеклист задач**.
 
+### 6. Обновление v1.0.1 (полный добор комбайна Вариант 2)
+- **3-режимное сохранение удалёнок (`Off` / `До перезахода (RAM)` / `Навсегда (БД)`) + медиа**: захват и восстановление фото, документов, стикеров, ГС, кружков, сообщений без текста и одноразовых (`OneViewTTL`) медиа; в режиме RAM переживает сворачивание в трей («домик») и очищается только при полном закрытии приложения.
+- **Исключения и Spy-инструменты**: per-chat исключения сохранения/чтения/набора текста, `Delete (Keep Locally)`, точное время прочтения/прослушивания (`ContextActionWithSubText`), `Peek Last Seen`, журнал присутствия (`Presence History`) + запоминание последнего онлайна (`Remembered Last Seen`), экспорт/импорт бэкапа (`Merge` / `Replace`).
+- **Partisan Security и хоткеи**: `Duress PIN` (`Decoy` / `Silent Panic Wipe`), скрытые чаты за `#PIN` в поиске, `Panic Wipe` (`Ctrl+Shift+F12`), глобальные хоткеи `Ctrl+Shift+F10` (`Always on Top` + кнопка-булавка в шапке окна) и `Ctrl+Shift+F11` (`Streamer Mode`), статус `[Ghost]`/`[Streamer]` в заголовке + настраиваемый хоткей, `Alt+F` и `Alt+C`.
+- **Дополнения комбайна**: **Локальные папки** (6 фильтров: `Unread`, `Unmuted`, `Admin`, `Groups`, `Channels`, `Bots`), **Per-Chat Ghost Mode (5/5)** + **Online Blink (~1.5с)**, блокировка внешних запросов метаданных (`BlockExternalLookups`), **Анти-фишинг барьеры** (кнопка номера, Mini Apps, фейк-Support, подтверждение внешних ссылок), переводчики **DeepLX / TranSmart / SolarBrain** с авто-fallback на Google и саммари чата (`Summarize Chat`), **Pangu**-пробелы CJK–Latin, скрытие плашек дисклеймеров, **ответ/цитата на удалённое сообщение**, **в Избранное без автора**, **Unread Chats First**, **Recent Chats (50)** (`Alt+R`), лог смены био и онлайн-алерты (`Watch Online`), маскировка номера/`@username`/уведомлений в `Streamer Mode`, **Device Spoofing** (`Model`/`System`/`AppVersion`/`LangCode`), **очистка EXIF/XMP/IPTC**, **Forced Copy & Save**, **массовое удаление за период**, **перемотка в кружках**, **«Удалить для всех» по умолчанию**, **автозамены**, **Upload & Download Speed Boost**, случайные **16-hex** имена файлов, **Prefer IPv6**, скрытие дней рождений и подарков, индикатор **Mutual Contact**, **Main Font** и **SQLite WAL Mode**.
+
+---
+
+## Credits и благодарности (перенесённые open-source модули)
+SolarGram объединяет наработки проверенных open-source форков Telegram (подробнее — [docs/COMBINE_ARCHITECTURE.md](docs/COMBINE_ARCHITECTURE.md) и [docs/SOLARGRAM_FEATURES_CATALOG.md](docs/SOLARGRAM_FEATURES_CATALOG.md)):
+- **[Telegram Desktop (`tdesktop`)](https://github.com/telegramdesktop/tdesktop)** — официальная база под GNU GPLv3.
+- **[AyuGramDesktop](https://github.com/AyuGram/AyuGramDesktop)** — Ghost Mode (`0/5`), Anti-Recall и история правок, Spy read/online, OneView-медиа, `WAL Mode`, `MainFont`, `Upload Speed Boost`, `Regex`-фильтры, `Message Shot`, кастомизация меню и `Streamer Mode` (`SetWindowDisplayAffinity`).
+- **[Partisan Telegram](https://github.com/wrwrabbit/tdesktop)** и **[Vartagram](https://github.com/wrwrabbit/Vartagram)** — `Duress PIN` (режим приманки и экстренный вайп) и скрытие чатов за `#PIN`.
+- **[SereinGram](https://github.com/eltavine/SereinGram)** — зачистка трекинг-хвостов URL (`OutgoingGuard`), OBS/capture-детектор, маскировка на стриме, переводчики DeepLX и TranSmart, Pangu-пробелы, саммари чата, `Recent Chats` и `To Saved (No Author)`.
+- **[GhostgramPC](https://github.com/ichmagmaus111/GhostgramPC)** — тихая отложка (+12с), `Read Until Here`, `Eternal Online`, пересылка без автора, `Anti-Caps` и цитирование/ответ на удалённые сообщения.
+- **[Regram](https://github.com/RegramDev/Regram)** — защита ICU Regex-фильтров от ReDoS (лимит времени и стека).
+- **[LuxuryGram](https://github.com/GofMan5/LuxuryGram)** — `Force Relay Calls` (без P2P утечки IP), подтверждение звонка, `Repeat` с rich-превью и логирование присутствия.
+- **[Kotatogram](https://github.com/kotatogram/kotatogram-desktop)** — локальные папки клиента и автозамены текста (`:shrug:` и др.).
+- **[Materialgram](https://github.com/kukuruzka165/materialgram)** — массовое удаление чанками по 100 (`FLOOD_WAIT`), ползунок перемотки кружков и MD3-переключатели.
+- **[Forkgram](https://github.com/crazypeace/forkgram-tdesktop)** — авточекбокс «Удалить для всех» и кнопка закрепления окна поверх других.
+- **[entinyGram](https://github.com/entaytion/entinyGram)** и **[Donutgram](https://github.com/kittenello/Donutgram)** — журнал онлайна, запоминание скрытого `last seen` и `Device Spoofing` в `initConnection`.
+- **[Novagram](https://github.com/confeden/Novagram)** и **[Nagram](https://github.com/NextAlone/Nagram)** — удаление метаданных EXIF/XMP/IPTC при отправке фото и принудительное копирование (`Forced Copy`).
+- **[64Gram](https://github.com/TDesktop-x64/tdesktop)** / **[NFGram](https://github.com/frknkrc44/NFGram)** — точные счётчики, ускорение выгрузки и скачивания, переключатель `Prefer IPv6` и деблоат дней рождений/подарков/каналов.
+- **[decoder-dev/Telegram-iOS](https://github.com/decoder-dev/Telegram-iOS)** — защита от утечки 5-значных кодов входа `777000`.
+- **[Telebrain](https://github.com/fedorn/telebrain)** — концепция локального ИИ-помощника через Ollama (`SolarBrain`).
+
 ---
 
 ## Структура документации

@@ -6,11 +6,36 @@
 #include "solar/libs/sqlite/sqlite_orm.h"
 #include "base/unixtime.h"
 
+#include <QtCore/QByteArray>
+#include <QtCore/QFile>
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+
 #include <mutex>
+#include <unordered_map>
 
 using namespace sqlite_orm;
 
 std::mutex databaseMutex;
+
+namespace {
+
+struct LastSeenCacheKey {
+	ID userId;
+	ID peerId;
+	bool operator==(const LastSeenCacheKey &other) const = default;
+};
+
+struct LastSeenCacheKeyHash {
+	size_t operator()(const LastSeenCacheKey &k) const noexcept {
+		return std::hash<ID>{}(k.userId) ^ (std::hash<ID>{}(k.peerId) << 1);
+	}
+};
+
+std::unordered_map<LastSeenCacheKey, int, LastSeenCacheKeyHash> rememberedLastSeenCache;
+
+} // namespace
 
 auto storage = make_storage(
 	"./tdata/solardata.db",
@@ -142,6 +167,18 @@ auto storage = make_storage(
 		make_column("dialogId", &SpyMessageContentsRead::dialogId),
 		make_column("messageId", &SpyMessageContentsRead::messageId),
 		make_column("entityCreateDate", &SpyMessageContentsRead::entityCreateDate)
+	),
+	make_index("idx_spy_presence_userId_peerId",
+			   column<SpyPresenceLog>(&SpyPresenceLog::userId),
+			   column<SpyPresenceLog>(&SpyPresenceLog::peerId)),
+	make_table<SpyPresenceLog>(
+		"SpyPresenceLog",
+		make_column("fakeId", &SpyPresenceLog::fakeId, primary_key().autoincrement()),
+		make_column("userId", &SpyPresenceLog::userId),
+		make_column("peerId", &SpyPresenceLog::peerId),
+		make_column("eventType", &SpyPresenceLog::eventType),
+		make_column("timestamp", &SpyPresenceLog::timestamp),
+		make_column("details", &SpyPresenceLog::details)
 	)
 );
 
@@ -407,6 +444,324 @@ void clearDeletedMessages(ID userId, ID dialogId, ID topicId) {
 		);
 	} catch (std::exception &) {
 	}
+}
+
+void clearAllDeletedMessages() {
+	std::lock_guard lock(databaseMutex);
+	try {
+		storage.remove_all<DeletedMessage>();
+	} catch (const std::exception &ex) {
+		LOG(("Failed to clear all deleted messages: %1").arg(ex.what()));
+	}
+}
+
+void setWalMode(bool enabled) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		storage.pragma.journal_mode(
+			enabled
+				? sqlite_orm::journal_mode::WAL
+				: sqlite_orm::journal_mode::DELETE_);
+	} catch (const std::exception &ex) {
+		LOG(("Failed to update SQLite journal_mode: %1").arg(ex.what()));
+	}
+}
+
+void addSpyMessageRead(const SpyMessageRead &mark) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		const auto existing = storage.select(
+			columns(&SpyMessageRead::fakeId),
+			where(
+				column<SpyMessageRead>(&SpyMessageRead::userId) == mark.userId and
+				column<SpyMessageRead>(&SpyMessageRead::dialogId) == mark.dialogId and
+				column<SpyMessageRead>(&SpyMessageRead::messageId) == mark.messageId
+			),
+			limit(1)
+		);
+		if (existing.empty()) {
+			storage.insert(mark);
+		}
+	} catch (const std::exception &ex) {
+		LOG(("Failed to save spy read mark: %1").arg(ex.what()));
+	}
+}
+
+int getSpyMessageReadDate(ID userId, ID dialogId, int messageId) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		const auto rows = storage.select(
+			columns(column<SpyMessageRead>(&SpyMessageRead::entityCreateDate)),
+			where(
+				column<SpyMessageRead>(&SpyMessageRead::userId) == userId and
+				column<SpyMessageRead>(&SpyMessageRead::dialogId) == dialogId and
+				column<SpyMessageRead>(&SpyMessageRead::messageId) >= messageId
+			),
+			order_by(column<SpyMessageRead>(&SpyMessageRead::messageId)).asc(),
+			limit(1)
+		);
+		return rows.empty() ? 0 : std::get<0>(rows.front());
+	} catch (const std::exception &ex) {
+		LOG(("Failed to query spy read mark: %1").arg(ex.what()));
+		return 0;
+	}
+}
+
+void addSpyMessageContentsRead(const SpyMessageContentsRead &mark) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		const auto existing = storage.select(
+			columns(column<SpyMessageContentsRead>(&SpyMessageContentsRead::fakeId)),
+			where(
+				column<SpyMessageContentsRead>(&SpyMessageContentsRead::userId) == mark.userId and
+				column<SpyMessageContentsRead>(&SpyMessageContentsRead::dialogId) == mark.dialogId and
+				column<SpyMessageContentsRead>(&SpyMessageContentsRead::messageId) == mark.messageId
+			),
+			limit(1)
+		);
+		if (existing.empty()) {
+			storage.insert(mark);
+		}
+	} catch (const std::exception &ex) {
+		LOG(("Failed to save spy contents read mark: %1").arg(ex.what()));
+	}
+}
+
+int getSpyMessageContentsReadDate(ID userId, ID dialogId, int messageId) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		const auto rows = storage.select(
+			columns(column<SpyMessageContentsRead>(&SpyMessageContentsRead::entityCreateDate)),
+			where(
+				column<SpyMessageContentsRead>(&SpyMessageContentsRead::userId) == userId and
+				column<SpyMessageContentsRead>(&SpyMessageContentsRead::dialogId) == dialogId and
+				column<SpyMessageContentsRead>(&SpyMessageContentsRead::messageId) == messageId
+			),
+			order_by(column<SpyMessageContentsRead>(&SpyMessageContentsRead::fakeId)).desc(),
+			limit(1)
+		);
+		return rows.empty() ? 0 : std::get<0>(rows.front());
+	} catch (const std::exception &ex) {
+		LOG(("Failed to query spy contents read mark: %1").arg(ex.what()));
+		return 0;
+	}
+}
+
+void addSpyPresenceLog(const SpyPresenceLog &entry) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		storage.insert(entry);
+		if ((entry.eventType == 0 || entry.eventType == 1 || entry.eventType == 5)
+			&& entry.timestamp > 0) {
+			const LastSeenCacheKey key{ entry.userId, entry.peerId };
+			auto &cached = rememberedLastSeenCache[key];
+			if (entry.timestamp > cached) {
+				cached = entry.timestamp;
+			}
+		}
+	} catch (const std::exception &ex) {
+		LOG(("Failed to save spy presence log: %1").arg(ex.what()));
+	}
+}
+
+std::vector<SpyPresenceLog> getSpyPresenceLogs(ID userId, ID peerId, int limitCount) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		return storage.get_all<SpyPresenceLog>(
+			where(
+				column<SpyPresenceLog>(&SpyPresenceLog::userId) == userId and
+				column<SpyPresenceLog>(&SpyPresenceLog::peerId) == peerId
+			),
+			order_by(column<SpyPresenceLog>(&SpyPresenceLog::fakeId)).desc(),
+			limit(limitCount)
+		);
+	} catch (const std::exception &ex) {
+		LOG(("Failed to fetch spy presence logs: %1").arg(ex.what()));
+		return {};
+	}
+}
+
+int getRememberedLastSeen(ID userId, ID peerId) {
+	std::lock_guard lock(databaseMutex);
+	const LastSeenCacheKey key{ userId, peerId };
+	if (const auto it = rememberedLastSeenCache.find(key); it != rememberedLastSeenCache.end()) {
+		return it->second;
+	}
+	try {
+		const auto rows = storage.select(
+			columns(column<SpyPresenceLog>(&SpyPresenceLog::timestamp)),
+			where(
+				column<SpyPresenceLog>(&SpyPresenceLog::userId) == userId and
+				column<SpyPresenceLog>(&SpyPresenceLog::peerId) == peerId and
+				(column<SpyPresenceLog>(&SpyPresenceLog::eventType) == 0 or
+				 column<SpyPresenceLog>(&SpyPresenceLog::eventType) == 1 or
+				 column<SpyPresenceLog>(&SpyPresenceLog::eventType) == 5)
+			),
+			order_by(column<SpyPresenceLog>(&SpyPresenceLog::timestamp)).desc(),
+			limit(1)
+		);
+		const auto ts = rows.empty() ? 0 : std::get<0>(rows.front());
+		rememberedLastSeenCache.emplace(key, ts);
+		return ts;
+	} catch (const std::exception &ex) {
+		LOG(("Failed to query remembered last seen: %1").arg(ex.what()));
+		return 0;
+	}
+}
+
+void clearSpyPresenceLogs(ID userId, ID peerId) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		if (userId == 0 && peerId == 0) {
+			storage.remove_all<SpyPresenceLog>();
+			rememberedLastSeenCache.clear();
+		} else if (peerId == 0) {
+			storage.remove_all<SpyPresenceLog>(
+				where(column<SpyPresenceLog>(&SpyPresenceLog::userId) == userId)
+			);
+			rememberedLastSeenCache.clear();
+		} else {
+			storage.remove_all<SpyPresenceLog>(
+				where(
+					column<SpyPresenceLog>(&SpyPresenceLog::userId) == userId and
+					column<SpyPresenceLog>(&SpyPresenceLog::peerId) == peerId
+				)
+			);
+			rememberedLastSeenCache.erase(LastSeenCacheKey{ userId, peerId });
+		}
+	} catch (const std::exception &ex) {
+		LOG(("Failed to clear spy presence logs: %1").arg(ex.what()));
+	}
+}
+
+bool exportBackupJson(const QString &filePath, const QJsonObject &settingsJson) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		QJsonObject root;
+		root["format"] = QStringLiteral("SolarGramBackup");
+		root["version"] = 1;
+		root["exportedAt"] = static_cast<qint64>(base::unixtime::now());
+		root["settings"] = settingsJson;
+
+		QJsonArray filtersArr;
+		for (const auto &f : storage.get_all<RegexFilter>()) {
+			QJsonObject obj;
+			obj["idBase64"] = QString::fromLatin1(
+				QByteArray(f.id.data(), static_cast<int>(f.id.size())).toBase64());
+			obj["text"] = QString::fromStdString(f.text);
+			obj["enabled"] = f.enabled;
+			obj["reversed"] = f.reversed;
+			obj["caseInsensitive"] = f.caseInsensitive;
+			if (f.dialogId.has_value()) {
+				obj["dialogId"] = static_cast<qint64>(*f.dialogId);
+			}
+			filtersArr.append(obj);
+		}
+		root["regexFilters"] = filtersArr;
+
+		QJsonArray exclArr;
+		for (const auto &ex : storage.get_all<RegexFilterGlobalExclusion>()) {
+			QJsonObject obj;
+			obj["dialogId"] = static_cast<qint64>(ex.dialogId);
+			obj["filterIdBase64"] = QString::fromLatin1(
+				QByteArray(ex.filterId.data(), static_cast<int>(ex.filterId.size())).toBase64());
+			exclArr.append(obj);
+		}
+		root["regexExclusions"] = exclArr;
+
+		QFile out(filePath);
+		if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+			return false;
+		}
+		out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+		return true;
+	} catch (const std::exception &ex) {
+		LOG(("Failed to export SolarGram backup: %1").arg(ex.what()));
+		return false;
+	}
+}
+
+std::optional<QJsonObject> importBackupJson(const QString &filePath, bool replaceExisting) {
+	QFile in(filePath);
+	if (!in.open(QIODevice::ReadOnly)) {
+		return std::nullopt;
+	}
+	constexpr qint64 kMaxBackupBytes = 32 * 1024 * 1024;
+	if (in.size() <= 0 || in.size() > kMaxBackupBytes) {
+		return std::nullopt;
+	}
+	QJsonParseError err;
+	const auto doc = QJsonDocument::fromJson(in.readAll(), &err);
+	if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+		return std::nullopt;
+	}
+	const auto root = doc.object();
+	if (root.value("format").toString() != QStringLiteral("SolarGramBackup")) {
+		return std::nullopt;
+	}
+
+	std::lock_guard lock(databaseMutex);
+	try {
+		storage.begin_transaction();
+		if (replaceExisting) {
+			storage.remove_all<RegexFilter>();
+			storage.remove_all<RegexFilterGlobalExclusion>();
+		}
+		const auto filtersArr = root.value("regexFilters").toArray();
+		for (const auto &val : filtersArr) {
+			if (!val.isObject()) continue;
+			const auto obj = val.toObject();
+			const auto rawId = QByteArray::fromBase64(obj.value("idBase64").toString().toLatin1());
+			if (rawId.isEmpty()) continue;
+			RegexFilter filter;
+			filter.id.assign(rawId.begin(), rawId.end());
+			filter.text = obj.value("text").toString().toStdString();
+			filter.enabled = obj.value("enabled").toBool(true);
+			filter.reversed = obj.value("reversed").toBool(false);
+			filter.caseInsensitive = obj.value("caseInsensitive").toBool(false);
+			if (obj.contains("dialogId") && !obj.value("dialogId").isNull()) {
+				filter.dialogId = static_cast<ID>(obj.value("dialogId").toInteger());
+			}
+			storage.replace(filter);
+		}
+		const auto exclArr = root.value("regexExclusions").toArray();
+		for (const auto &val : exclArr) {
+			if (!val.isObject()) continue;
+			const auto obj = val.toObject();
+			const auto rawId = QByteArray::fromBase64(obj.value("filterIdBase64").toString().toLatin1());
+			if (rawId.isEmpty()) continue;
+			const auto did = static_cast<ID>(obj.value("dialogId").toInteger());
+			std::vector<char> fid(rawId.begin(), rawId.end());
+			const auto exists = !storage.select(
+				columns(column<RegexFilterGlobalExclusion>(&RegexFilterGlobalExclusion::fakeId)),
+				where(
+					column<RegexFilterGlobalExclusion>(&RegexFilterGlobalExclusion::dialogId) == did and
+					column<RegexFilterGlobalExclusion>(&RegexFilterGlobalExclusion::filterId) == fid
+				),
+				limit(1)
+			).empty();
+			if (!exists) {
+				RegexFilterGlobalExclusion ex;
+				ex.fakeId = 0;
+				ex.dialogId = did;
+				ex.filterId = std::move(fid);
+				storage.insert(ex);
+			}
+		}
+		storage.commit();
+	} catch (const std::exception &ex) {
+		try {
+			storage.rollback();
+		} catch (...) {
+		}
+		LOG(("Failed to import SolarGram backup: %1").arg(ex.what()));
+		return std::nullopt;
+	}
+
+	if (root.value("settings").isObject()) {
+		return root.value("settings").toObject();
+	}
+	return QJsonObject{};
 }
 
 template<typename T>

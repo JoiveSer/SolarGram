@@ -228,7 +228,10 @@ void SolarSectionBuilder::addSlider(SliderArgs &&args) {
 			auto onFinalChanged = std::move(args.onFinalChanged);
 
 			if (formatLabel) {
-				label->setText(formatLabel(args.current));
+				const auto initialVal = indexToValue
+					? indexToValue(args.current)
+					: args.current;
+				label->setText(formatLabel(initialVal));
 			}
 
 			slider->setPseudoDiscrete(

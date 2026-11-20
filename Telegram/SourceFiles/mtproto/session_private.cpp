@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/random.h"
 #include "base/qthelp_url.h"
 #include "base/openssl_help.h"
+#include "solar/solar_settings.h"
 #include "base/unixtime.h"
 #include "base/platform/base_platform_info.h"
 
@@ -676,8 +677,13 @@ void SessionPrivate::tryToSend() {
 	int32 initSize = 0, initSizeInInts = 0;
 	if (needsLayer) {
 		Assert(_options != nullptr);
-		const auto systemLangCode = _options->systemLangCode;
-		const auto cloudLangCode = _options->cloudLangCode;
+		const auto spoof = SolarSettings::getInstance().deviceSpoofSnapshot();
+		const auto systemLangCode = (spoof.enabled && !spoof.langCode.isEmpty())
+			? spoof.langCode
+			: _options->systemLangCode;
+		const auto cloudLangCode = (spoof.enabled && !spoof.langCode.isEmpty())
+			? spoof.langCode
+			: _options->cloudLangCode;
 		const auto langPackName = _options->langPackName;
 		const auto deviceModel = (_currentDcType == DcType::Cdn)
 			? "n/a"
@@ -685,7 +691,9 @@ void SessionPrivate::tryToSend() {
 		const auto systemVersion = (_currentDcType == DcType::Cdn)
 			? "n/a"
 			: _instance->systemVersion();
-		const auto appVersion = ComputeAppVersion();
+		const auto appVersion = (spoof.enabled && !spoof.appVersion.isEmpty())
+			? spoof.appVersion
+			: ComputeAppVersion();
 		const auto proxyType = _options->proxy.type;
 		const auto mtprotoProxy = (proxyType == ProxyData::Type::Mtproto)
 			|| (proxyType == ProxyData::Type::Web);

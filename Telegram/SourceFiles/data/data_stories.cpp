@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/utils/telegram_helpers.h"
 
 
 namespace Data {
@@ -1245,8 +1246,13 @@ void Stories::markAsRead(FullStoryId id, bool viewed) {
 		return;
 	}
 
-	const auto &ghost = SolarSettings::ghost(&_owner->session());
-	if (!ghost.sendReadStories()) {
+	const auto targetPeer = _owner->peerLoaded(id.peer);
+	const auto shouldReadStory = targetPeer
+		? SolarSettings::getInstance().effectiveShouldReadStories(
+			&_owner->session(),
+			getDialogIdFromPeer(targetPeer))
+		: SolarSettings::ghost(&_owner->session()).sendReadStories();
+	if (!shouldReadStory) {
 		return;
 	}
 
@@ -1404,8 +1410,9 @@ void Stories::toggleHidden(
 void Stories::sendMarkAsReadRequest(
 		not_null<PeerData*> peer,
 		StoryId tillId) {
-	const auto &ghost = SolarSettings::ghost(&_owner->session());
-	if (!ghost.sendReadStories()) {
+	if (!SolarSettings::getInstance().effectiveShouldReadStories(
+			&_owner->session(),
+			getDialogIdFromPeer(peer))) {
 		return;
 	}
 
@@ -1439,11 +1446,7 @@ void Stories::checkQuitPreventFinished() {
 void Stories::sendMarkAsReadRequests() {
 	_markReadTimer.cancel();
 
-	const auto &ghost = SolarSettings::ghost(&_owner->session());
-	if (!ghost.sendReadStories()) {
-		return;
-	}
-
+	const auto &settings = SolarSettings::getInstance();
 	for (auto i = begin(_markReadPending); i != end(_markReadPending);) {
 		const auto peerId = *i;
 		if (_markReadRequests.contains(peerId)) {
@@ -1451,7 +1454,10 @@ void Stories::sendMarkAsReadRequests() {
 			continue;
 		}
 		const auto j = _all.find(peerId);
-		if (j != end(_all)) {
+		if (j != end(_all)
+			&& settings.effectiveShouldReadStories(
+				&_owner->session(),
+				getDialogIdFromPeer(j->second.peer))) {
 			sendMarkAsReadRequest(j->second.peer, j->second.readTill);
 		}
 		i = _markReadPending.erase(i);
@@ -1463,24 +1469,30 @@ void Stories::sendIncrementViewsRequests() {
 		return;
 	}
 
-	const auto &ghost = SolarSettings::ghost(&_owner->session());
-	if (!ghost.sendReadStories()) {
-		return;
-	}
-
+	const auto &settings = SolarSettings::getInstance();
 	struct Prepared {
 		PeerId peer = 0;
 		QVector<MTPint> ids;
 	};
 	auto prepared = std::vector<Prepared>();
+	auto skipped = std::vector<PeerId>();
 	for (const auto &[peer, ids] : _incrementViewsPending) {
 		if (_incrementViewsRequests.contains(peer)) {
+			continue;
+		}
+		if (!settings.effectiveShouldReadStories(
+				&_owner->session(),
+				getDialogIdFromPeer(_owner->peer(peer)))) {
+			skipped.push_back(peer);
 			continue;
 		}
 		prepared.push_back({ .peer = peer });
 		for (const auto &id : ids) {
 			prepared.back().ids.push_back(MTP_int(id));
 		}
+	}
+	for (const auto peer : skipped) {
+		_incrementViewsPending.remove(peer);
 	}
 
 	const auto api = &_owner->session().api();
@@ -2318,8 +2330,7 @@ bool Stories::isQuitPrevent() {
 		sendIncrementViewsRequests();
 	}
 
-	const auto &ghost = SolarSettings::ghost(&_owner->session());
-	if (!ghost.sendReadStories() || (_markReadRequests.empty() && _incrementViewsRequests.empty())) {
+	if (_markReadRequests.empty() && _incrementViewsRequests.empty()) {
 		return false;
 	}
 	LOG(("Stories prevents quit, marking as read..."));

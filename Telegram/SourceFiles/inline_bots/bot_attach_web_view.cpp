@@ -2782,7 +2782,14 @@ void AttachWebView::open(WebViewDescriptor &&descriptor) {
 	}
 	_instances.push_back(
 		std::make_unique<WebViewInstance>(std::move(descriptor)));
-	_instances.back()->activate();
+	const auto &instance = _instances.back();
+	instance->activate();
+	if (SolarSettings::getInstance().phishingGuard()
+		&& !instance->bot()->isVerified()) {
+		if (const auto show = instance->uiShow()) {
+			show->showToast(tr::solar_MiniAppSecurityHint(tr::now));
+		}
+	}
 }
 
 void AttachWebView::acceptMainMenuDisclaimer(

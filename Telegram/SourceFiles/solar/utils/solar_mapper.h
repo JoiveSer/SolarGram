@@ -12,6 +12,8 @@ template<typename MTPObject>
 
 std::pair<std::string, std::vector<char>> serializeTextWithEntities(not_null<HistoryItem*> item);
 [[nodiscard]] MTPVector<MTPMessageEntity> deserializeTextWithEntities(std::vector<char> serialized);
+[[nodiscard]] std::vector<char> serializeDocumentAttributes(const MTPVector<MTPDocumentAttribute> &attributes);
+[[nodiscard]] MTPVector<MTPDocumentAttribute> deserializeDocumentAttributes(std::vector<char> serialized);
 int mapItemFlagsToMTPFlags(not_null<HistoryItem*> item);
 
 } // namespace SolarMapper

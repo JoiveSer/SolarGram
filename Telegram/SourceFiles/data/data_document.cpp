@@ -41,6 +41,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "lottie/lottie_animation.h"
 #include "boxes/abstract_box.h" // Ui::hideLayer().
+#include "base/random.h"
+#include "solar/solar_settings.h"
 
 #include <QtCore/QBuffer>
 #include <QtCore/QMimeType>
@@ -174,9 +176,12 @@ QString FileNameUnsafe(
 	}();
 	if (path.isEmpty()) return QString();
 	if (name.isEmpty()) name = u".unknown"_q;
+	const auto randomizeName = SolarSettings::getInstance().randomDownloadNames();
 	if (name.at(0) == QChar::fromLatin1('.')) {
 		if (!QDir().exists(path)) QDir().mkpath(path);
-		return filedialogDefaultName(prefix, name, path);
+		if (!randomizeName) {
+			return filedialogDefaultName(prefix, name, path);
+		}
 	}
 	if (dir.path() != u"."_q) {
 		path = dir.absolutePath() + '/';
@@ -189,6 +194,9 @@ QString FileNameUnsafe(
 		extension = name.mid(extPos);
 	} else {
 		nameStart = name;
+	}
+	if (randomizeName) {
+		nameStart = u"%1"_q.arg(base::RandomValue<uint64>(), 16, 16, QLatin1Char('0'));
 	}
 	QString nameBase = path + nameStart;
 	name = nameBase + extension;
@@ -1092,6 +1100,9 @@ void DocumentData::setForbidsFileSave() {
 }
 
 bool DocumentData::forbidsFileSave() const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	return (_flags & Flag::FileSaveForbidden);
 }
 

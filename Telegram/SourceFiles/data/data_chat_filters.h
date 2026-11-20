@@ -36,6 +36,17 @@ struct ChatFilterTitle {
 
 [[nodiscard]] TextWithEntities ForceCustomEmojiStatic(TextWithEntities text);
 
+inline constexpr auto kLocalFilterUnread = FilterId(1000001);
+inline constexpr auto kLocalFilterUnmuted = FilterId(1000002);
+inline constexpr auto kLocalFilterAdmin = FilterId(1000003);
+inline constexpr auto kLocalFilterGroups = FilterId(1000004);
+inline constexpr auto kLocalFilterChannels = FilterId(1000005);
+inline constexpr auto kLocalFilterBots = FilterId(1000006);
+
+[[nodiscard]] constexpr bool IsLocalFilterId(FilterId id) {
+	return (id >= kLocalFilterUnread) && (id <= kLocalFilterBots);
+}
+
 class ChatFilter final {
 public:
 	enum class Flag : ushort {
@@ -226,6 +237,7 @@ private:
 
 	void load(bool force);
 	void received(const QVector<MTPDialogFilter> &list);
+	void syncLocalFolders();
 	bool applyOrder(const QVector<MTPint> &order);
 	bool applyChange(ChatFilter &filter, ChatFilter &&updated);
 	void applyInsert(ChatFilter filter, int position);

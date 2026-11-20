@@ -1,6 +1,7 @@
 // This is the source code of SolarGram Desktop.
 // Built on Telegram Desktop under GNU GPLv3.
 #include "solar/ui/utils/itunes_search.h"
+#include "solar/solar_settings.h"
 
 #include <QtCore/QCache>
 #include <QtCore/QEventLoop>
@@ -710,6 +711,9 @@ QString upgradeArtworkSize(QString url, int sizeHint) {
 } // namespace
 
 QPixmap FetchCover(const QString &performer, const QString &title, int sizeHintPx, int timeoutMs) {
+	if (SolarSettings::getInstance().blockExternalLookups()) {
+		return {};
+	}
 	const auto perf = performer.trimmed();
 	const auto titl = title.trimmed();
 	if (perf.isEmpty() && titl.isEmpty()) return {};

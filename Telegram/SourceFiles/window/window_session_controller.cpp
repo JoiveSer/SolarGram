@@ -1585,6 +1585,16 @@ SessionController::SessionController(
 , _chatStyle(std::make_unique<Ui::ChatStyle>(session->colorIndicesValue())) {
 	init();
 
+	activeChatValue(
+	) | rpl::map([](Dialogs::Key key) {
+		return key.peer();
+	}) | rpl::filter([](PeerData *peer) {
+		return peer != nullptr;
+	}) | rpl::distinct_until_changed(
+	) | rpl::on_next([](PeerData *peer) {
+		SolarSettings::getInstance().pushRecentChat(int64(peer->id.value));
+	}, _lifetime);
+
 	_chatStyleTheme = _defaultChatTheme;
 	_chatStyle->apply(_defaultChatTheme.get());
 

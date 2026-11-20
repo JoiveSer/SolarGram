@@ -232,7 +232,8 @@ void PromoSuggestions::setTopPromoted(
 
 bool PromoSuggestions::current(const QString &key) const {
 	if (key == u"BIRTHDAY_CONTACTS_TODAY"_q) {
-		if (_dismissedSuggestions.contains(key)) {
+		if (SolarSettings::getInstance().hideBirthdays()
+			|| _dismissedSuggestions.contains(key)) {
 			return false;
 		} else {
 			const auto known

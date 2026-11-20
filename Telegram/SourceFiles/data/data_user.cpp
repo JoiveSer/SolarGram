@@ -40,6 +40,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/notifications_manager.h"
 
 // SolarGram includes
+#include "base/unixtime.h"
+#include "solar/data/solar_database.h"
 #include "solar/solar_settings.h"
 #include "solar/utils/telegram_helpers.h"
 
@@ -952,7 +954,24 @@ void ApplyUserUpdate(not_null<UserData*> user, const MTPDuserFull &update) {
 		: update.is_phone_calls_available()
 		? UserData::CallsStatus::Enabled
 		: UserData::CallsStatus::Disabled);
-	user->setAbout(qs(update.vabout().value_or_empty()));
+	const auto newAbout = qs(update.vabout().value_or_empty());
+	const auto prevAbout = user->about();
+	if (!user->isSelf()
+		&& !user->isBot()
+		&& !user->isServiceUser()
+		&& SolarSettings::getInstance().presenceLoggerEnabled()
+		&& prevAbout != newAbout
+		&& !prevAbout.isEmpty()) {
+		const ID uid = user->session().userId().bare & PeerId::kChatTypeMask;
+		const ID pid = user->id.value & PeerId::kChatTypeMask;
+		const auto details = newAbout.isEmpty()
+			? std::string("Bio cleared")
+			: ("Bio: " + newAbout.left(120).toStdString());
+		SolarDatabase::addSpyPresenceLog({
+			0, uid, pid, 4, base::unixtime::now(), details
+		});
+	}
+	user->setAbout(newAbout);
 	user->setCommonChatsCount(update.vcommon_chats_count().v);
 	user->setPeerGiftsCount(update.vstargifts_count().value_or_empty());
 	user->setMainProfileTab(Data::ParseProfileTab(update.vmain_tab()));

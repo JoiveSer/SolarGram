@@ -173,7 +173,8 @@ class Content : public Ui::RpWidget
 public:
 	Content(
 		QWidget *parent,
-		const std::vector<Font> &fonts);
+		const std::vector<Font> &fonts,
+		const QString &current);
 
 	Ui::ScrollToRequest jump(int rows);
 
@@ -187,7 +188,8 @@ public:
 
 private:
 	void setupContent(
-		const std::vector<Font> &fonts);
+		const std::vector<Font> &fonts,
+		const QString &current);
 
 	Fn<Ui::ScrollToRequest(int rows)> _jump;
 	Fn<void(const QString &query)> _filter;
@@ -644,16 +646,17 @@ void Rows::paintEvent(QPaintEvent *e) {
 
 Content::Content(
 	QWidget *parent,
-	const std::vector<Font> &fonts)
+	const std::vector<Font> &fonts,
+	const QString &current)
 	: RpWidget(parent) {
-	setupContent(fonts);
+	setupContent(fonts, current);
 }
 
 void Content::setupContent(
-	const std::vector<Font> &fonts) {
+	const std::vector<Font> &fonts,
+	const QString &current) {
 	using namespace rpl::mappers;
 
-	const auto current = SolarUiSettings::getMonoFont();
 	const auto content = Ui::CreateChild<Ui::VerticalLayout>(this);
 	const auto add = [&](const std::vector<Font> &list)
 	{
@@ -842,34 +845,26 @@ Ui::ScrollToRequest Content::jump(int rows) {
 
 } // namespace
 
-SolarUi::FontSelectorBox::FontSelectorBox(QWidget *, Window::SessionController *controller, Fn<void(QString font)> hook)
-	: _controller(controller), _hook(hook) {
+SolarUi::FontSelectorBox::FontSelectorBox(
+	QWidget *,
+	Window::SessionController *controller,
+	Fn<void(QString font)> hook,
+	std::optional<QString> initialFont)
+	: _selectedFont(initialFont.value_or(SolarUiSettings::getMonoFont()))
+	, _initialFont(std::move(initialFont))
+	, _controller(controller)
+	, _hook(hook) {
 }
 
 void SolarUi::FontSelectorBox::prepare() {
+	const auto weak = base::make_weak(_controller);
 	addButton(tr::lng_box_ok(),
 			  [=]
 			  {
 				  _hook(_selectedFont);
 
-				  _controller->show(Ui::MakeConfirmBox({
-					  .text = tr::lng_settings_need_restart(),
-					  .confirmed = []
-					  {
-						  Core::Restart();
-					  },
-					  .confirmText = tr::lng_settings_restart_now(),
-					  .cancelText = tr::lng_settings_restart_later(),
-				  }));
-				  closeBox();
-			  });
-
-	addLeftButton(tr::solar_BoxActionReset(),
-				  [=]
-				  {
-					  _hook(qs(""));
-
-					  _controller->show(Ui::MakeConfirmBox({
+				  if (const auto c = weak.get()) {
+					  c->show(Ui::MakeConfirmBox({
 						  .text = tr::lng_settings_need_restart(),
 						  .confirmed = []
 						  {
@@ -878,6 +873,26 @@ void SolarUi::FontSelectorBox::prepare() {
 						  .confirmText = tr::lng_settings_restart_now(),
 						  .cancelText = tr::lng_settings_restart_later(),
 					  }));
+				  }
+				  closeBox();
+			  });
+
+	addLeftButton(tr::solar_BoxActionReset(),
+				  [=]
+				  {
+					  _hook(qs(""));
+
+					  if (const auto c = weak.get()) {
+						  c->show(Ui::MakeConfirmBox({
+							  .text = tr::lng_settings_need_restart(),
+							  .confirmed = []
+							  {
+								  Core::Restart();
+							  },
+							  .confirmText = tr::lng_settings_restart_now(),
+							  .cancelText = tr::lng_settings_restart_later(),
+						  }));
+					  }
 
 
 					  closeBox();
@@ -897,8 +912,9 @@ void SolarUi::FontSelectorBox::prepare() {
 	using namespace rpl::mappers;
 
 	const auto fonts = SolarUi::PrepareFonts();
+	const auto current = _initialFont.value_or(SolarUiSettings::getMonoFont());
 	const auto inner = setInnerWidget(
-		object_ptr<SolarUi::Content>(this, fonts),
+		object_ptr<SolarUi::Content>(this, fonts, current),
 		st::boxScroll,
 		topContainer->height());
 	inner->resizeToWidth(st::boxWidth);
@@ -993,10 +1009,13 @@ void SolarUi::FontSelectorBox::setInnerFocus() {
 }
 
 base::binary_guard
-SolarUi::FontSelectorBox::Show(Window::SessionController *controller, const Fn<void(QString font)> hook) {
+SolarUi::FontSelectorBox::Show(
+		Window::SessionController *controller,
+		const Fn<void(QString font)> hook,
+		std::optional<QString> initialFont) {
 	auto result = base::binary_guard();
 
-	Ui::show(Box<FontSelectorBox>(controller, hook));
+	Ui::show(Box<FontSelectorBox>(controller, hook, std::move(initialFont)));
 
 	return result;
 }

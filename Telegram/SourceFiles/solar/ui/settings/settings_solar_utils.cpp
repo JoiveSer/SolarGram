@@ -4,9 +4,14 @@
 
 #include "lang_auto.h"
 #include "base/event_filter.h"
+#include "boxes/peer_list_box.h"
 #include "core/application.h"
+#include "data/data_peer.h"
+#include "data/data_session.h"
 #include "lang/lang_text_entity.h"
+#include "main/main_session.h"
 #include "settings/settings_common.h"
+#include "solar/solar_settings.h"
 #include "styles/style_solar_styles.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_edit_peer_members.h"
@@ -19,10 +24,12 @@
 #include "ui/vertical_list.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/boxes/single_choice_box.h"
+#include "ui/layers/generic_box.h"
 #include "ui/text/text_entity.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
+#include "ui/widgets/fields/password_input.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/wrap/padding_wrap.h"
@@ -704,6 +711,105 @@ not_null<Button*> AddSettingToggle(
 		[getter] { return (SolarSettings::getInstance().*getter)(); },
 		[setter](bool v) { (SolarSettings::getInstance().*setter)(v); },
 		icon);
+}
+
+void ShowSolarPinBox(
+		not_null<Window::SessionController*> controller,
+		rpl::producer<QString> title,
+		rpl::producer<QString> placeholder,
+		std::optional<rpl::producer<QString>> description,
+		bool hasExisting,
+		Fn<void(const QString &)> onSave,
+		Fn<void()> onClear) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		box->setTitle(title);
+		if (description.has_value()) {
+			box->addRow(object_ptr<Ui::FlatLabel>(
+				box,
+				std::move(*description),
+				st::boxLabel));
+		}
+		const auto field = box->addRow(object_ptr<Ui::PasswordInput>(
+			box,
+			st::defaultInputField,
+			placeholder));
+		box->setFocusCallback([=] { field->setFocusFast(); });
+		const auto submit = [=] {
+			const auto pin = field->getLastText().trimmed();
+			if (pin.size() < 4 || pin.size() > 16) {
+				field->showError();
+				return;
+			}
+			onSave(pin);
+			box->closeBox();
+		};
+		QObject::connect(field, &QLineEdit::returnPressed, box, submit);
+		if (hasExisting && onClear) {
+			box->addLeftButton(tr::solar_DuressClearPin(), [=] {
+				onClear();
+				box->closeBox();
+			});
+		}
+		box->addButton(tr::lng_settings_save(), submit);
+		box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+	}));
+}
+
+namespace {
+
+class RecentChatsController final : public PeerListController {
+public:
+	explicit RecentChatsController(
+		not_null<Window::SessionController*> controller)
+	: _controller(base::make_weak(controller))
+	, _session(&controller->session()) {
+	}
+
+	void prepare() override {
+		auto &data = _session->data();
+		for (const auto id : SolarSettings::getInstance().recentChatIds()) {
+			if (const auto peer = data.peerLoaded(PeerId(static_cast<uint64>(id)))) {
+				delegate()->peerListAppendRow(
+					std::make_unique<PeerListRow>(peer));
+			}
+		}
+		if (!delegate()->peerListFullRowsCount()) {
+			setDescriptionText(tr::solar_RecentChatsEmpty(tr::now));
+		}
+		delegate()->peerListRefreshRows();
+	}
+
+	void rowClicked(not_null<PeerListRow*> row) override {
+		const auto peer = row->peer();
+		const auto controller = _controller.get();
+		delegate()->peerListUiShow()->hideLayer();
+		if (controller) {
+			controller->showPeerHistory(peer);
+		}
+	}
+
+	Main::Session &session() const override {
+		return *_session;
+	}
+
+private:
+	const base::weak_ptr<Window::SessionController> _controller;
+	const not_null<Main::Session*> _session;
+};
+
+} // namespace
+
+void ShowRecentChatsBox(not_null<Window::SessionController*> controller) {
+	controller->show(Box<PeerListBox>(
+		std::make_unique<RecentChatsController>(controller),
+		[](not_null<PeerListBox*> box) {
+			box->setTitle(tr::solar_RecentChats());
+			box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+			box->addLeftButton(tr::solar_RecentChatsClear(), [=] {
+				SolarSettings::getInstance().clearRecentChats();
+				box->closeBox();
+			});
+		}));
 }
 
 } // namespace Settings

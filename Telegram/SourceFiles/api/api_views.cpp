@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/utils/telegram_helpers.h"
 
 
 namespace Api {
@@ -87,7 +88,7 @@ void ViewsManager::pollExtendedMedia(
 }
 
 void ViewsManager::viewsIncrement() {
-	const auto &ghost = SolarSettings::ghost(_session);
+	const auto &settings = SolarSettings::getInstance();
 
 	for (auto i = _toIncrement.begin(); i != _toIncrement.cend();) {
 		if (_incrementRequests.contains(i->first)) {
@@ -100,10 +101,13 @@ void ViewsManager::viewsIncrement() {
 		for (const auto &msgId : i->second) {
 			ids.push_back(MTP_int(msgId));
 		}
+		const auto shouldRead = settings.effectiveShouldRead(
+			_session,
+			getDialogIdFromPeer(i->first));
 		const auto requestId = _api.request(MTPmessages_GetMessagesViews(
 			i->first->input(),
 			MTP_vector<MTPint>(ids),
-			MTP_bool(ghost.sendReadMessages())
+			MTP_bool(shouldRead)
 		)).done([=](
 				const MTPmessages_MessageViews &result,
 				mtpRequestId requestId) {

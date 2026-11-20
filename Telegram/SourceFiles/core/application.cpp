@@ -111,6 +111,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // SolarGram includes
 #include "solar/solar_infra.h"
 #include "solar/solar_settings.h"
+#include "solar/data/messages_storage.h"
 #include "solar/features/streamer_mode/streamer_mode.h"
 
 
@@ -306,6 +307,8 @@ Application::~Application() {
 	Media::Player::finish(_audio.get());
 	style::StopManager();
 
+	SolarMessages::clearSessionVault();
+
 	Instance = nullptr;
 }
 
@@ -316,7 +319,9 @@ void Application::run() {
 
 	startLocalStorage();
 
-	style::SetCustomFont(settings().customFontFamily());
+	const auto &solarMainFont = SolarSettings::getInstance().mainFont();
+	style::SetCustomFont(
+		solarMainFont.isEmpty() ? settings().customFontFamily() : solarMainFont);
 	style::internal::StartFonts();
 
 	Test::ApplyStartupOverrides();

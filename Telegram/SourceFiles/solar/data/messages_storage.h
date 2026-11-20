@@ -15,5 +15,10 @@ std::vector<SolarMessageBase> getDeletedMessages(not_null<PeerData*> peer, ID to
 bool hasDeletedMessages(not_null<PeerData*> peer, ID topicId);
 void removeDeletedMessage(not_null<HistoryItem*> item);
 void clearDeletedMessages(not_null<PeerData*> peer, ID topicId);
+void clearAllDeletedMessages();
+void clearSessionVault();
+[[nodiscard]] QByteArray getSessionMediaBytes(const std::string &ramKey);
+[[nodiscard]] QString getAttachmentsFolderPath();
+void clearAttachmentsFolder();
 
 }

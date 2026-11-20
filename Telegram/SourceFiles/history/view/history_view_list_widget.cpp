@@ -43,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/message_field.h"
 #include "chat_helpers/stickers_emoji_pack.h"
 #include "mainwindow.h"
+#include "solar/solar_settings.h"
 #include "mainwidget.h"
 #include "core/application.h"
 #include "core/click_handler_types.h"
@@ -2176,16 +2177,25 @@ bool ListWidget::isEmpty() const {
 }
 
 bool ListWidget::hasCopyRestriction(HistoryItem *item) const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	return _delegate->listCopyRestrictionType(item)
 		!= CopyRestrictionType::None;
 }
 
 bool ListWidget::hasCopyMediaRestriction(not_null<HistoryItem*> item) const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	return _delegate->listCopyMediaRestrictionType(item)
 		!= CopyRestrictionType::None;
 }
 
 bool ListWidget::showCopyRestriction(HistoryItem *item) {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	const auto type = _delegate->listCopyRestrictionType(item);
 	if (type == CopyRestrictionType::None) {
 		return false;
@@ -2199,6 +2209,9 @@ bool ListWidget::showCopyRestriction(HistoryItem *item) {
 }
 
 bool ListWidget::showCopyMediaRestriction(not_null<HistoryItem*> item) {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	const auto type = _delegate->listCopyMediaRestrictionType(item);
 	if (type == CopyRestrictionType::None) {
 		return false;
@@ -2212,6 +2225,9 @@ bool ListWidget::showCopyMediaRestriction(not_null<HistoryItem*> item) {
 }
 
 bool ListWidget::hasCopyRestrictionForSelected() const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	if (hasCopyRestriction()) {
 		return true;
 	}
@@ -2231,6 +2247,9 @@ bool ListWidget::hasCopyRestrictionForSelected() const {
 }
 
 bool ListWidget::showCopyRestrictionForSelected() {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	if (_selected.empty()) {
 		if (_selectedTextItem && showCopyRestriction(_selectedTextItem)) {
 			return true;

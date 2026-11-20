@@ -4,7 +4,10 @@
 
 #include "solar/data/entities.h"
 
+#include <QtCore/QString>
+
 #include <functional>
+#include <optional>
 
 class SchemaVersion
 {
@@ -26,6 +29,22 @@ std::vector<DeletedMessage> getDeletedMessages(ID userId, ID dialogId, ID topicI
 bool hasDeletedMessages(ID userId, ID dialogId, ID topicId);
 void removeDeletedMessage(ID userId, ID dialogId, ID messageId);
 void clearDeletedMessages(ID userId, ID dialogId, ID topicId);
+void clearAllDeletedMessages();
+
+void setWalMode(bool enabled);
+
+void addSpyMessageRead(const SpyMessageRead &mark);
+int getSpyMessageReadDate(ID userId, ID dialogId, int messageId);
+void addSpyMessageContentsRead(const SpyMessageContentsRead &mark);
+int getSpyMessageContentsReadDate(ID userId, ID dialogId, int messageId);
+
+void addSpyPresenceLog(const SpyPresenceLog &entry);
+std::vector<SpyPresenceLog> getSpyPresenceLogs(ID userId, ID peerId, int limitCount = 200);
+int getRememberedLastSeen(ID userId, ID peerId);
+void clearSpyPresenceLogs(ID userId, ID peerId);
+
+bool exportBackupJson(const QString &filePath, const QJsonObject &settingsJson);
+std::optional<QJsonObject> importBackupJson(const QString &filePath, bool replaceExisting);
 
 std::vector<RegexFilter> getAllRegexFilters();
 RegexFilter getById(std::vector<char> id);

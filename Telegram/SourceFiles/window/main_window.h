@@ -18,6 +18,7 @@ class Account;
 } // namespace Main
 
 namespace Ui {
+class AbstractButton;
 class BoxContent;
 class PlainShadow;
 } // namespace Ui
@@ -197,6 +198,8 @@ protected:
 private:
 	void refreshTitleWidget();
 	void setupCanaryTitleLabel();
+	void setupSolarStatusLabel();
+	void setupAlwaysOnTopButton();
 	[[nodiscard]] QString nativeTitleSuffix() const;
 	void updateMinimumSize();
 	void updatePalette();
@@ -214,6 +217,10 @@ private:
 	bool _positionInited = false;
 
 	object_ptr<Ui::PlainShadow> _titleShadow = { nullptr };
+	object_ptr<Ui::AbstractButton> _alwaysOnTopButton = { nullptr };
+	QPointer<Ui::RpWidget> _solarStatusLabel;
+	rpl::lifetime _titleSolarLifetime;
+	rpl::lifetime _ghostTitleLifetime;
 	object_ptr<Ui::RpWidget> _outdated;
 	object_ptr<Ui::RpWidget> _screenReaderBar;
 	object_ptr<Ui::RpWidget> _body;

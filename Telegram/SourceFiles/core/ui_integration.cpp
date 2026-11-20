@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/bank_card_click_handler.h"
 #include "core/sandbox.h"
 #include "core/click_handler_types.h"
+#include "base/qt/qt_key_modifiers.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "data/data_session.h"
 #include "iv/iv_instance.h"
@@ -21,6 +22,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "ui/basic_click_handlers.h"
 #include "ui/emoji_config.h"
+#include "ui/boxes/confirm_box.h"
+#include "ui/layers/show.h"
 #include "ui/toast/toast.h"
 #include "lang/lang_keys.h"
 #include "platform/platform_specific.h"
@@ -456,7 +459,37 @@ bool UiIntegration::handleUrlClick(
 
 	auto parsed = UrlForAutoLogin(url);
 	const auto domain = DomainForAutoLogin(parsed);
-	const auto skip = context.value<ClickHandlerContext>().skipBotAutoLogin;
+	const auto my = context.value<ClickHandlerContext>();
+	const auto skip = my.skipBotAutoLogin;
+	if (!my.externalUrlConfirmed
+		&& !base::IsCtrlPressed()
+		&& SolarSettings::getInstance().confirmExternalLinks()
+		&& SolarUrlHandlers::IsWebUrl(QUrl::fromUserInput(url))) {
+		const auto controller = my.sessionWindow.get();
+		const auto window = controller
+			? &controller->window()
+			: Core::App().activeWindow();
+		const auto display = parsed.isValid() ? parsed.toDisplayString() : url;
+		const auto openNow = [url, parsed, domain, context, skip](Fn<void()> hide) {
+			hide();
+			if (skip || !BotAutoLogin(url, domain, context)) {
+				File::OpenUrl(
+					UrlWithAutoLoginToken(url, QUrl(parsed), domain, context));
+			}
+		};
+		auto box = Ui::MakeConfirmBox({
+			.text = tr::solar_ConfirmExternalUrl(tr::now, lt_url, display),
+			.confirmed = openNow,
+			.confirmText = tr::lng_open_link(),
+		});
+		if (my.show) {
+			my.show->showBox(std::move(box));
+			return true;
+		} else if (window) {
+			window->show(std::move(box));
+			return true;
+		}
+	}
 	if (skip || !BotAutoLogin(url, domain, context)) {
 		File::OpenUrl(
 			UrlWithAutoLoginToken(url, std::move(parsed), domain, context));

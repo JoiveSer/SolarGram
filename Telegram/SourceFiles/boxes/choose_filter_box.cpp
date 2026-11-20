@@ -161,6 +161,9 @@ void ChangeFilterById(
 		not_null<History*> history,
 		bool add) {
 	Expects(filterId != 0);
+	if (Data::IsLocalFilterId(filterId)) {
+		return;
+	}
 
 	const auto list = history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
@@ -229,6 +232,9 @@ bool ChooseFilterValidator::canAdd() const {
 
 bool ChooseFilterValidator::canAdd(FilterId filterId) const {
 	Expects(filterId != 0);
+	if (Data::IsLocalFilterId(filterId)) {
+		return false;
+	}
 
 	if (communityAddBlocked()) {
 		return false;
@@ -243,6 +249,9 @@ bool ChooseFilterValidator::canAdd(FilterId filterId) const {
 
 bool ChooseFilterValidator::canRemove(FilterId filterId) const {
 	Expects(filterId != 0);
+	if (Data::IsLocalFilterId(filterId)) {
+		return false;
+	}
 
 	const auto list = _history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
@@ -256,6 +265,9 @@ ChooseFilterValidator::LimitData ChooseFilterValidator::limitReached(
 		FilterId filterId,
 		bool always) const {
 	Expects(filterId != 0);
+	if (Data::IsLocalFilterId(filterId)) {
+		return {};
+	}
 
 	const auto list = _history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
@@ -288,7 +300,7 @@ void FillChooseFilterMenu(
 	const auto suppressClose = menu->lifetime().make_state<bool>(false);
 	for (const auto &filter : list) {
 		const auto id = filter.id();
-		if (!id) {
+		if (!id || Data::IsLocalFilterId(id)) {
 			continue;
 		}
 
@@ -412,7 +424,7 @@ bool FillChooseFilterWithAdminedGroupsMenu(
 	auto added = 0;
 	for (const auto &filter : list) {
 		const auto id = filter.id();
-		if (!id) {
+		if (!id || Data::IsLocalFilterId(id)) {
 			continue;
 		}
 		auto canRestrictList = std::vector<not_null<PeerData*>>();

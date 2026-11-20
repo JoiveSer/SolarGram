@@ -19,7 +19,10 @@
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
+#include "styles/style_boxes.h"
+#include "ui/layers/generic_box.h"
 #include "ui/painter.h"
+#include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/wrap/vertical_layout.h"
@@ -175,6 +178,17 @@ void BuildLinks(SectionBuilder &builder) {
 				QString("https://github.com/JoiveSer/SolarGram#readme"));
 		},
 	});
+	builder.addButton({
+		.id = u"solar/credits"_q,
+		.title = rpl::single(QString("Credits & Donors")),
+		.icon = { &st::menuIconInfo },
+		.label = rpl::single(QString("Open-Source Attribution")),
+		.onClick = [controller = builder.controller()] {
+			if (controller) {
+				controller->show(Box(FillSolarCreditsBox));
+			}
+		},
+	});
 
 	builder.addSkip();
 }
@@ -193,6 +207,80 @@ const auto kMeta = BuildHelper({
 });
 
 } // namespace
+
+void FillSolarCreditsBox(not_null<Ui::GenericBox*> box) {
+	box->setTitle(rpl::single(QString("SolarGram Credits & Ported Modules")));
+	const auto addDonor = [&](const QString &name, const QString &url, const QString &modules) {
+		auto rich = Ui::Text::Link(name, url);
+		rich.append(u" — "_q + modules);
+		const auto label = box->addRow(
+			object_ptr<Ui::FlatLabel>(box, rpl::single(std::move(rich)), st::boxLabel),
+			st::boxRowPadding);
+		label->setLinksTrusted();
+	};
+	addDonor(
+		u"Telegram Desktop (tdesktop)"_q,
+		u"https://github.com/telegramdesktop/tdesktop"_q,
+		u"Base GPLv3 client engine."_q);
+	addDonor(
+		u"AyuGramDesktop"_q,
+		u"https://github.com/AyuGram/AyuGramDesktop"_q,
+		u"Ghost Mode 0/5, Anti-Recall (Off/RAM/DB + media), OneView TTL, per-chat Spy exclusions, WAL Mode, MainFont, Upload Boost, Regex Filters, Message Shot, Streamer Mode."_q);
+	addDonor(
+		u"Partisan Telegram / Vartagram"_q,
+		u"https://github.com/wrwrabbit/tdesktop"_q,
+		u"Duress PIN (Decoy & Silent Wipe), #PIN hidden chats, Panic Wipe (Ctrl+Shift+F12)."_q);
+	addDonor(
+		u"SereinGram"_q,
+		u"https://github.com/eltavine/SereinGram"_q,
+		u"Tracking URL stripper, Win32 OBS Sentinel, Streamer masking, DeepLX & TranSmart translators, Pangu CJK-Latin spacing, Chat Summary, Recent Chats, To Saved (No Author)."_q);
+	addDonor(
+		u"GhostgramPC"_q,
+		u"https://github.com/ichmagmaus111/GhostgramPC"_q,
+		u"Scheduled Ghost send (+12s), Read Until Here, Eternal Online, Forward Without Author, Anti-Caps, Quoted Reply on Deleted Messages."_q);
+	addDonor(
+		u"Regram"_q,
+		u"https://github.com/RegramDev/Regram"_q,
+		u"ICU regex ReDoS time and stack safety limits."_q);
+	addDonor(
+		u"LuxuryGram"_q,
+		u"https://github.com/GofMan5/LuxuryGram"_q,
+		u"Force Relay Calls (no P2P leak), Call Confirmation, unquoted Repeat with rich preview."_q);
+	addDonor(
+		u"Kotatogram"_q,
+		u"https://github.com/kotatogram/kotatogram-desktop"_q,
+		u"Local Folders (Unread / Unmuted / Admin / Types) and text replacements (:shrug:)."_q);
+	addDonor(
+		u"Materialgram"_q,
+		u"https://github.com/kukuruzka165/materialgram"_q,
+		u"Period bulk delete (100-batch RPC chunker), round video seekbar, MD3 switch styling."_q);
+	addDonor(
+		u"Forkgram"_q,
+		u"https://github.com/crazypeace/forkgram-tdesktop"_q,
+		u"Delete for Everyone checked by default, title-bar Always-on-Top pin control."_q);
+	addDonor(
+		u"entinyGram / Donutgram"_q,
+		u"https://github.com/entaytion/entinyGram"_q,
+		u"Presence History log, Remembered Last Seen, Peek Last Seen, initConnection Device Spoofing."_q);
+	addDonor(
+		u"Novagram / Nagram"_q,
+		u"https://github.com/confeden/Novagram"_q,
+		u"EXIF/XMP/IPTC stripping on outgoing photos, Forced Copy/Save in restricted chats."_q);
+	addDonor(
+		u"64Gram / NFGram"_q,
+		u"https://github.com/TDesktop-x64/tdesktop"_q,
+		u"Exact unrounded counters, Upload & Download Speed Boost, Similar Channels hide guard, Prefer IPv6 option."_q);
+	addDonor(
+		u"decoder-dev/Telegram-iOS"_q,
+		u"https://github.com/decoder-dev/Telegram-iOS"_q,
+		u"5-digit 777000 login code leak guard (RAM-only)."_q);
+	addDonor(
+		u"Telebrain"_q,
+		u"https://github.com/fedorn/telebrain"_q,
+		u"SolarBrain Local AI Copilot (Ollama / OpenAI-compatible manual prompt pipeline)."_q);
+	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+	box->setWidth(st::boxWideWidth);
+}
 
 rpl::producer<QString> SolarMain::title() {
 	return rpl::single(QString(""));

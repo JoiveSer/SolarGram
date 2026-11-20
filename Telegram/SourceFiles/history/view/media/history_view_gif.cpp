@@ -43,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h" // Application::showDocument.
 #include "core/core_settings.h"
 #include "ui/chat/attach/attach_prepare.h"
+#include "solar/solar_settings.h"
 #include "ui/chat/chat_style.h"
 #include "ui/image/image.h"
 #include "ui/text/format_values.h"
@@ -2453,7 +2454,7 @@ int Gif::surroundingHeight(
 }
 
 bool Gif::roundSeekShown() const {
-	if (!_seekl) {
+	if (!_seekl || !SolarSettings::getInstance().seekbarForRoundVideos()) {
 		return false;
 	} else if (_seeking) {
 		return true;
@@ -2463,6 +2464,9 @@ bool Gif::roundSeekShown() const {
 }
 
 bool Gif::isRoundSeekable() const {
+	if (!SolarSettings::getInstance().seekbarForRoundVideos()) {
+		return false;
+	}
 	// Player goes not-ready while a seek is applied.
 	if (!activeRoundStreamed() && !_seeking) {
 		return false;

@@ -126,6 +126,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // SolarGram includes
 #include "data/data_drafts.h"
 #include "solar/solar_settings.h"
+#include "solar/data/messages_storage.h"
 #include "solar/features/ai/solar_brain.h"
 #include "solar/features/forward/solar_forward.h"
 #include "solar/features/security/outgoing_guard.h"
@@ -1210,6 +1211,46 @@ bool AddDeleteMessageAction(
 		callback,
 		item->ttlDestroyAt(),
 		[=] { delete menu; }));
+	if (!item->isLocal() && item->isRegular() && !item->isDeleted()) {
+		menu->addAction(
+			tr::solar_DeleteKeepLocally(tr::now),
+			crl::guard(controller, [=] {
+				if (const auto current = owner->message(itemId)) {
+					if (current->isDeleted() || current->isLocal() || !current->isRegular()) {
+						return;
+					}
+					const auto peer = current->history()->peer;
+					const auto session = &peer->session();
+					if (current->ttlDestroyAt() > 0) {
+						current->applyTTL(0);
+					}
+					current->setDeleted();
+					SolarMessages::addDeletedMessage(current);
+					const auto ids = MTP_vector<MTPint>(1, MTP_int(current->id));
+					if (const auto channel = peer->asChannel()) {
+						session->api().request(MTPchannels_DeleteMessages(
+							channel->inputChannel(),
+							ids
+						)).done([=](const MTPmessages_AffectedMessages &result) {
+							session->api().applyAffectedMessages(peer, result);
+						}).send();
+					} else {
+						using Flag = MTPmessages_DeleteMessages::Flag;
+						const auto canRevoke = current->canDeleteForEveryone(base::unixtime::now());
+						const auto flags = canRevoke
+							? Flag::f_revoke
+							: MTPmessages_DeleteMessages::Flags(0);
+						session->api().request(MTPmessages_DeleteMessages(
+							MTP_flags(flags),
+							ids
+						)).done([=](const MTPmessages_AffectedMessages &result) {
+							session->api().applyAffectedMessages(peer, result);
+						}).send();
+					}
+				}
+			}),
+			&st::menuIconArchive);
+	}
 	return true;
 }
 
@@ -1446,6 +1487,14 @@ void AddMessageActions(
 	if (request.item) {
 		SolarUi::AddReadUntilAction(menu, request.item);
 		SolarUi::AddBurnAction(menu, request.item);
+		SolarUi::AddDeletedQuoteAction(
+			menu,
+			request.item,
+			[weak = base::make_weak(list)](QString text) {
+				if (const auto strong = weak.get()) {
+					strong->insertTextAtCursor(text);
+				}
+			});
 	}
 
 	// SolarGram Forward Clean (hide sender name) & SolarBrain AI
@@ -1469,6 +1518,15 @@ void AddMessageActions(
 						});
 				},
 				&st::menuIconForward);
+			SolarUi::AddForwardToSavedCleanAction(
+				menu,
+				request.navigation->parentController(),
+				ids,
+				[weak = base::make_weak(list)] {
+					if (const auto strong = weak.get()) {
+						strong->cancelSelection();
+					}
+				});
 		}
 		if (SolarSettings::getInstance().solarBrainEnabled()) {
 			const auto session = &request.navigation->session();
@@ -1506,21 +1564,26 @@ void AddMessageActions(
 			}
 		}
 		if (canFwd) {
+			const auto forwardIds = asGroup
+				? owner->itemOrItsGroup(item)
+				: MessageIdsList{ 1, itemId };
 			menu->addAction(
 				tr::solar_ContextForwardClean(tr::now),
 				[=] {
-					if (const auto msg = owner->message(itemId)) {
+					if (owner->message(itemId)) {
 						Window::ShowForwardMessagesBox(
 							request.navigation,
 							Data::ForwardDraft{
-								.ids = (asGroup
-									? owner->itemOrItsGroup(msg)
-									: MessageIdsList{ 1, itemId }),
+								.ids = forwardIds,
 								.options = Data::ForwardOptions::NoSenderNames,
 							});
 					}
 				},
 				&st::menuIconForward);
+			SolarUi::AddForwardToSavedCleanAction(
+				menu,
+				request.navigation->parentController(),
+				forwardIds);
 		}
 		if (SolarSettings::getInstance().solarBrainEnabled()) {
 			const auto rawText = item->originalText().text.trimmed();

@@ -36,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/crc32hash.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/toast/toast.h"
+#include "ui/widgets/buttons.h"
 #include "ui/widgets/shadow.h"
 #include "ui/controls/title_sub_widget.h"
 #include "ui/controls/window_outdated_bar.h"
@@ -47,6 +48,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h" // session->content()->windowShown().
 #include "tray.h"
 #include "styles/style_window.h"
+#include "styles/style_menu_icons.h"
 #include "styles/style_dialogs.h" // ChildSkip().x() for new child windows.
 
 #ifdef Q_OS_MAC
@@ -61,6 +63,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <kurlmimedata.h>
 
 // SolarGram includes
+#include "solar/solar_settings.h"
+#include "solar/features/hotkeys/solar_hotkeys.h"
 #include "solar/ui/solar_logo.h"
 
 
@@ -477,6 +481,32 @@ MainWindow::MainWindow(not_null<Controller*> controller)
 	}
 
 	Shortcuts::Listen(this);
+
+	const auto &solar = SolarSettings::getInstance();
+	solar.alwaysOnTopChanges(
+	) | rpl::on_next([=](bool enabled) {
+		_controller->applyAlwaysOnTop(enabled);
+		updateTitle();
+	}, lifetime());
+	rpl::merge(
+		solar.displayGhostStatusChanges() | rpl::to_empty,
+		solar.streamerModeChanges() | rpl::to_empty
+	) | rpl::on_next([=] {
+		updateTitle();
+	}, lifetime());
+	_controller->sessionControllerValue(
+	) | rpl::on_next([=](SessionController *sc) {
+		_ghostTitleLifetime.destroy();
+		if (sc) {
+			SolarSettings::ghost(&sc->session()).ghostModeActiveChanges(
+			) | rpl::on_next([=] {
+				updateTitle();
+			}, _ghostTitleLifetime);
+		}
+		updateTitle();
+	}, lifetime());
+
+	SolarHotkeys::AttachWindowShortcuts(_controller);
 }
 
 Main::Account &MainWindow::account() const {
@@ -688,6 +718,12 @@ int MainWindow::computeMinHeight() const {
 }
 
 void MainWindow::refreshTitleWidget() {
+	_titleSolarLifetime.destroy();
+	_alwaysOnTopButton.destroy();
+	if (_solarStatusLabel) {
+		delete _solarStatusLabel.data();
+		_solarStatusLabel = nullptr;
+	}
 	if (Ui::Platform::NativeWindowFrameSupported()
 		&& Core::App().settings().nativeWindowFrame()) {
 		setNativeFrame(true);
@@ -698,6 +734,8 @@ void MainWindow::refreshTitleWidget() {
 	} else {
 		setNativeFrame(false);
 		_titleShadow.destroy();
+		setupSolarStatusLabel();
+		setupAlwaysOnTopButton();
 	}
 }
 
@@ -724,14 +762,157 @@ void MainWindow::setupCanaryTitleLabel() {
 	}, lifetime());
 }
 
+void MainWindow::setupSolarStatusLabel() {
+	if constexpr (Core::BuildIsCanary) {
+		return;
+	}
+	const auto title = titleWidget();
+	if (!title) {
+		return;
+	}
+	const auto layout = Ui::Platform::TitleControlsLayout::Instance();
+	const auto textVar = _titleSolarLifetime.make_state<rpl::variable<QString>>();
+	const auto label = Ui::CreateTitleSubWidget(
+		title,
+		st::titleSubWidgetStyle,
+		textVar->value(),
+		layout->value(
+		) | rpl::map([](const Ui::Platform::TitleLayout &layout) {
+			return layout.onLeft() ? style::al_right : style::al_left;
+		}),
+		additionalContentPaddingValue());
+	_solarStatusLabel = label;
+	label->lifetime().add([layout] {});
+
+	rpl::combine(
+		SolarSettings::getInstance().displayGhostStatusValue(),
+		SolarSettings::getInstance().streamerModeValue(),
+		SolarSettings::getInstance().showAlwaysOnTopButtonValue(),
+		title->sizeValue(),
+		_controller->sessionControllerValue() | rpl::map([](SessionController *sc) {
+			return sc
+				? SolarSettings::ghost(&sc->session()).ghostModeActiveValue()
+				: (rpl::single(false) | rpl::type_erased);
+		}) | rpl::flatten_latest()
+	) | rpl::on_next([=](
+			bool show,
+			bool streamer,
+			bool showPin,
+			QSize size,
+			bool ghost) {
+		QString status;
+		if (show) {
+			if (ghost && streamer) {
+				status = u"Ghost \u2022 Streamer"_q;
+			} else if (ghost) {
+				status = u"Ghost"_q;
+			} else if (streamer) {
+				status = u"Streamer"_q;
+			}
+		}
+		*textVar = status;
+		if (_solarStatusLabel) {
+			const auto chipWidth = st::titleSubWidgetLeft.width()
+				+ st::titleSubWidgetStyle.font->width(status)
+				+ st::titleSubWidgetRight.width();
+			const auto reservedButtons = (showPin ? 4 : 3) * st::windowTitleButtonWidth;
+			const auto fits = (size.width() >= reservedButtons + chipWidth + 32);
+			_solarStatusLabel->setVisible(!status.isEmpty() && fits);
+		}
+	}, _titleSolarLifetime);
+}
+
+void MainWindow::setupAlwaysOnTopButton() {
+	const auto title = titleWidget();
+	if (!title) {
+		return;
+	}
+	_alwaysOnTopButton.create(title);
+	const auto raw = _alwaysOnTopButton.data();
+	const auto layout = Ui::Platform::TitleControlsLayout::Instance();
+	raw->lifetime().add([layout] {});
+
+	rpl::combine(
+		title->sizeValue(),
+		layout->value(),
+		additionalContentPaddingValue()
+	) | rpl::on_next([=](
+			QSize size,
+			const Ui::Platform::TitleLayout &layout,
+			int top) {
+		const auto width = st::windowTitleButtonWidth;
+		const auto height = std::max(0, size.height() - top);
+		const auto x = layout.onLeft()
+			? (size.width() - width)
+			: (size.width() - (int(layout.right.size()) + 1) * width);
+		raw->setGeometry(x, top, width, height);
+	}, _titleSolarLifetime);
+
+	SolarSettings::getInstance().showAlwaysOnTopButtonValue(
+	) | rpl::on_next([=](bool shown) {
+		raw->setVisible(shown);
+	}, _titleSolarLifetime);
+
+	SolarSettings::getInstance().alwaysOnTopChanges(
+	) | rpl::on_next([=] {
+		raw->update();
+	}, _titleSolarLifetime);
+
+	raw->paintRequest() | rpl::on_next([=] {
+		auto p = Painter(raw);
+		const auto over = raw->isOver() || raw->isDown();
+		const auto pinned = SolarSettings::getInstance().alwaysOnTop();
+		if (over) {
+			p.fillRect(raw->rect(), st::titleButtonBgOver);
+		}
+		const auto &icon = st::menuIconPin;
+		const auto iconX = (raw->width() - icon.width()) / 2;
+		const auto iconY = (raw->height() - icon.height()) / 2;
+		const auto color = pinned
+			? st::windowBgActive->c
+			: (over ? st::titleButtonFgOver->c : st::titleButtonFg->c);
+		icon.paint(p, iconX, iconY, raw->width(), color);
+	}, raw->lifetime());
+
+	raw->setClickedCallback([=] {
+		auto &solar = SolarSettings::getInstance();
+		solar.setAlwaysOnTop(!solar.alwaysOnTop());
+	});
+
+	hitTestRequests(
+	) | rpl::on_next([=](not_null<Ui::Platform::HitTestRequest*> request) {
+		if (!raw->isHidden() && !title->isHidden()) {
+			const auto local = title->mapFrom(this, request->point);
+			if (raw->geometry().contains(local)) {
+				request->result = Ui::Platform::HitTestResult::Client;
+			}
+		}
+	}, _titleSolarLifetime);
+}
+
 QString MainWindow::nativeTitleSuffix() const {
+	QString suffix;
 	if constexpr (Core::BuildIsCanary) {
 		const auto title = titleWidget();
 		if (!title || title->isHidden()) {
-			return u" \u2022 "_q + Core::CanaryTitleLabel();
+			suffix += u" \u2022 "_q + Core::CanaryTitleLabel();
 		}
 	}
-	return QString();
+	const auto &solar = SolarSettings::getInstance();
+	if (solar.displayGhostStatus()) {
+		if (const auto s = sessionController()) {
+			if (SolarSettings::ghost(&s->session()).isGhostModeActive()) {
+				suffix += u" [Ghost]"_q;
+			}
+		}
+		if (solar.streamerMode()) {
+			suffix += u" [Streamer]"_q;
+		}
+		if (solar.alwaysOnTop()) {
+			suffix += u" [Pinned]"_q;
+		}
+	}
+	return suffix;
 }
 
 void MainWindow::updateMinimumSize() {

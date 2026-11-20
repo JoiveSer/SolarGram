@@ -91,6 +91,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QWindow>
 
 // SolarGram includes
+#include "solar/solar_settings.h"
 #include "solar/ui/settings/settings_main.h"
 #include "solar/ui/utils/solar_profile_values.h"
 #include "solar/utils/telegram_helpers.h"
@@ -877,8 +878,16 @@ void SetupValidatePhoneNumberSuggestion(
 		content,
 		tr::lng_settings_suggestion_phone_number_title(
 			lt_phone,
-			rpl::single(
-				Ui::FormatPhone(controller->session().user()->phone()))),
+			rpl::combine(
+				SolarSettings::getInstance().streamerModeValue(),
+				SolarSettings::getInstance().streamerMaskPrivacyValue()
+			) | rpl::map([phone = controller->session().user()->phone()](
+					bool streamer,
+					bool mask) {
+				return (streamer && mask)
+					? u"+•• ••• ••• ••••"_q
+					: Ui::FormatPhone(phone);
+			})),
 		QMargins(
 			st::boxRowPadding.left()
 				- st::defaultSubsectionTitlePadding.left(),

@@ -48,6 +48,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "api/api_blocked_peers.h"
 #include "main/main_session.h"
+
+// SolarGram includes
+#include "solar/solar_settings.h"
 #include "base/timer.h"
 #include "base/unixtime.h"
 #include "boxes/peers/edit_contact_box.h"
@@ -925,17 +928,25 @@ void ContactStatus::setupShareHandler(not_null<UserData*> user) {
 			}).send();
 			close();
 		};
+		const auto warnPhishing = SolarSettings::getInstance().phishingGuard()
+			&& !user->isVerified();
+		auto confirmText = tr::lng_new_contact_share_sure(
+			tr::now,
+			lt_phone,
+			tr::marked(
+				Ui::FormatPhone(user->session().user()->phone())),
+			lt_user,
+			tr::bold(user->name()),
+			tr::marked);
+		if (warnPhishing) {
+			confirmText.append(u"\n\n"_q).append(
+				tr::solar_PhishingPhoneNotice(tr::now));
+		}
 		show->showBox(Ui::MakeConfirmBox({
-			.text = tr::lng_new_contact_share_sure(
-				tr::now,
-				lt_phone,
-				tr::marked(
-					Ui::FormatPhone(user->session().user()->phone())),
-				lt_user,
-				tr::bold(user->name()),
-				tr::marked),
+			.text = std::move(confirmText),
 			.confirmed = share,
 			.confirmText = tr::lng_box_ok(),
+			.confirmStyle = warnPhishing ? &st::attentionBoxButton : nullptr,
 		}));
 	}, _bar.lifetime());
 }

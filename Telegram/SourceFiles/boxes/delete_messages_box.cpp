@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_layers.h"
+#include "solar/solar_settings.h"
 
 namespace {
 
@@ -191,7 +192,9 @@ void DeleteMessagesBox::prepare() {
 			} else if (auto revoke = revokeText(peer)) {
 				const auto &settings = Core::App().settings();
 				const auto revokeByDefault
-					= !settings.rememberedDeleteMessageOnlyForYou();
+					= SolarSettings::getInstance().deleteForAllByDefault()
+						? true
+						: !settings.rememberedDeleteMessageOnlyForYou();
 				_revoke.create(
 					this,
 					revoke->checkbox,

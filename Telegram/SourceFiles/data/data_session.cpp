@@ -381,11 +381,16 @@ Session::Session(not_null<Main::Session*> session)
 
 	const auto &unreadOnTop = base::options::lookup<bool>(
 		Dialogs::kOptionDialogsUnreadOnTop);
-	_dialogsUnreadOnTop = unreadOnTop.value();
-	unreadOnTop.changes() | rpl::on_next([=, &unreadOnTop] {
-		_dialogsUnreadOnTop = unreadOnTop.value();
+	const auto refreshUnreadSort = [=] {
+		_dialogsUnreadOnTop = unreadOnTop.value()
+			|| SolarSettings::getInstance().unreadChatsFirst();
 		refreshChatListUnreadOnTop();
-	}, _lifetime);
+	};
+	_dialogsUnreadOnTop = unreadOnTop.value()
+		|| SolarSettings::getInstance().unreadChatsFirst();
+	unreadOnTop.changes() | rpl::on_next(refreshUnreadSort, _lifetime);
+	SolarSettings::getInstance().unreadChatsFirstChanges(
+	) | rpl::to_empty | rpl::on_next(refreshUnreadSort, _lifetime);
 
 	_chatsFilters->changed(
 	) | rpl::on_next([=] {
@@ -412,6 +417,18 @@ Session::Session(not_null<Main::Session*> session)
 	}, _lifetime);
 
 	subscribeForTopicRepliesLists();
+
+	{
+		const auto &solar = SolarSettings::getInstance();
+		rpl::merge(
+			solar.decoyModeActiveValue() | rpl::skip(1) | rpl::to_empty,
+			solar.hiddenChatsRevealedValue() | rpl::skip(1) | rpl::to_empty,
+			solar.hiddenChatsVersionChanges() | rpl::to_empty
+		) | rpl::on_next([=] {
+			_histories->refreshChatListExistence();
+			sendHistoryChangeNotifications();
+		}, _lifetime);
+	}
 
 	crl::on_main(_session, [=] {
 		AmPremiumValue(
@@ -3106,7 +3123,7 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		const auto unchanged = edit.richPage
 			? (Iv::FlattenRichPageSummary(edit.richPage) == msg)
 			: (edit.textWithEntities == msg);
-		if (unchanged || msg.empty()) {
+		if (unchanged || (msg.empty() && !existing->media())) {
 			goto proceed;
 		}
 
@@ -3405,6 +3422,9 @@ void Session::processMessagesDeleted(
 		const auto i = list ? list->find(messageId.v) : Messages::iterator();
 		if (list && i != list->end()) {
 			const auto item = i->second;
+			if (item->isDeleted()) {
+				continue;
+			}
 			const auto history = item->history();
 			if (isMessageSavable(item)) {
 				processMessageDelete(item);
@@ -3434,6 +3454,9 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 	auto historiesToCheck = base::flat_set<not_null<History*>>();
 	for (const auto &messageId : data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
+			if (item->isDeleted()) {
+				continue;
+			}
 			const auto history = item->history();
 			if (isMessageSavable(item)) {
 				processMessageDelete(item);

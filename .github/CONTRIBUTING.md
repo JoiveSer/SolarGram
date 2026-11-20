@@ -19,9 +19,7 @@ This document describes how you can contribute to SolarGram Desktop.
 
 We highly appreciate your contributions in the matter of fixing bugs and optimizing the SolarGram Desktop source code and its documentation. In case of fixing the existing user experience please push to your fork and [submit a pull request][pr].
 
-If you have a translations-related contribution, check out [our Crowdin][translate].
-
-Highly appreciated feature implementations from [Android app][android_repo].
+If you have a translations-related contribution, please submit a pull request on [GitHub][translate].
 
 ## Build instructions
 
@@ -35,15 +33,15 @@ Telegram Desktop is advancing quickly. It is therefore critical that you pull up
 To pull in upstream changes:
 
     git remote add upstream https://github.com/JoiveSer/SolarGram.git
-    git fetch upstream master
+    git fetch upstream main
 
 Check the log to be sure that you actually want the changes, before merging:
 
-    git log upstream/master
+    git log upstream/main
 
-Then rebase your changes on the latest commits in the `master` branch:
+Then rebase your changes on the latest commits in the `main` branch:
 
-    git rebase upstream/master
+    git rebase upstream/main
 
 After that, you have to force push your commits:
 
@@ -108,7 +106,6 @@ Before you submit a pull request, please test your changes. Verify that Telegram
 [help_change_commit_message]: https://help.github.com/articles/changing-a-commit-message/
 [commit_message]: http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
 [pr]: https://github.com/JoiveSer/SolarGram/compare
-[build_instructions]: https://github.com/JoiveSer/SolarGram/blob/dev/docs
+[build_instructions]: https://github.com/JoiveSer/SolarGram/blob/main/docs/COMBINE_ARCHITECTURE.md
 [closing-issues-via-commit-messages]: https://help.github.com/articles/closing-issues-via-commit-messages/
 [translate]: https://github.com/JoiveSer/SolarGram
-[android_repo]: https://github.com/JoiveSer/SolarGram/SolarGram4A

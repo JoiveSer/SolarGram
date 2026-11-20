@@ -457,6 +457,15 @@ void System::schedule(Data::ItemNotification notification) {
 		thread->popNotification(notification);
 		return;
 	}
+	{
+		const auto &solar = SolarSettings::getInstance();
+		if (solar.decoyModeActive()
+			|| (!solar.hiddenChatsRevealed()
+				&& solar.isChatHidden(getDialogIdFromPeer(item->history()->peer)))) {
+			thread->popNotification(notification);
+			return;
+		}
+	}
 	const auto ready = (skip.value != SkipState::Unknown)
 		&& item->notificationReady();
 
@@ -1100,8 +1109,11 @@ void System::playSound(
 Manager::DisplayOptions Manager::getNotificationOptions(
 		HistoryItem *item,
 		Data::ItemNotificationType type) const {
+	const auto &solar = SolarSettings::getInstance();
 	const auto hideEverything = Core::App().passcodeLocked()
-		|| forceHideDetails();
+		|| forceHideDetails()
+		|| solar.decoyModeActive()
+		|| (solar.streamerMode() && solar.streamerMaskNotifications());
 	const auto view = Core::App().settings().notifyView();
 	const auto peer = item ? item->history()->peer.get() : nullptr;
 	const auto topic = item ? item->topic() : nullptr;

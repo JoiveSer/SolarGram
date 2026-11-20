@@ -3,8 +3,13 @@
 #include "solar/ui/settings/settings_solar.h"
 
 #include "lang_auto.h"
+#include "core/file_utilities.h"
 #include "solar/solar_settings.h"
+#include "solar/data/messages_storage.h"
+#include "solar/data/solar_database.h"
+#include "solar/features/hotkeys/solar_hotkeys.h"
 #include "solar/ui/solar_userpic.h"
+#include "solar/ui/boxes/edit_mark_box.h"
 #include "solar/ui/settings/solar_builder.h"
 #include "solar/ui/settings/settings_solar_utils.h"
 #include "solar/ui/settings/settings_main.h"
@@ -18,22 +23,33 @@
 #include "settings/settings_common.h"
 #include "styles/style_solar_icons.h"
 #include "styles/style_solar_styles.h"
+#include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
+#include "styles/style_widgets.h"
 #include "styles/style_window.h"
 #include "ui/painter.h"
 #include "ui/vertical_list.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/boxes/single_choice_box.h"
+#include "ui/layers/generic_box.h"
 #include "ui/text/text.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/buttons.h"
+#include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/menu/menu_item_base.h"
 #include "ui/wrap/vertical_layout.h"
+#include "window/main_window.h"
+#include "window/window_controller.h"
 #include "window/window_session_controller.h"
+
+#include <QtCore/QDir>
+#include <QtCore/QUrl>
+#include <QtGui/QDesktopServices>
 
 namespace Settings {
 
@@ -567,6 +583,34 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 			AddSkip(container);
 			AddDividerText(container, tr::solar_SuggestGhostModeBeforeViewingStoryDescription());
 
+			AddSkip(container);
+			const auto onlineBlinkButton = AddButtonWithIcon(
+				container,
+				tr::solar_OnlineBlink(),
+				st::settingsButtonNoIcon);
+			if (wctx.highlights) {
+				wctx.highlights->push_back(std::make_pair(
+					u"solar/onlineBlink"_q,
+					HighlightEntry{ onlineBlinkButton.get(), {} }));
+			}
+			onlineBlinkButton->toggleOn(
+				state->selectedUserId.value()
+				| rpl::map([](uint64 id) {
+					return SolarSettings::ghost(id).onlineBlinkValue();
+				}) | rpl::flatten_latest()
+			)->toggledValue(
+			) | rpl::filter(
+				[=](bool enabled) {
+					return enabled != SolarSettings::ghost(state->selectedUserId.current()).onlineBlink();
+				}
+			) | on_next(
+				[=](bool enabled) {
+					SolarSettings::ghost(state->selectedUserId.current()).setOnlineBlink(enabled);
+				},
+				container->lifetime());
+			AddSkip(container);
+			AddDividerText(container, tr::solar_OnlineBlinkAbout());
+
 			auto showMenu = [=] {
 				state->menu = base::make_unique_q<Ui::PopupMenu>(
 					pickerButton,
@@ -627,19 +671,69 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 				.title = tr::solar_SuggestGhostModeBeforeViewingStory(tr::now),
 				.section = sctx.sectionId,
 			});
+			sctx.entries->push_back({
+				.id = u"solar/onlineBlink"_q,
+				.title = tr::solar_OnlineBlink(tr::now),
+				.section = sctx.sectionId,
+			});
 		});
 	});
 }
 
+void BuildGhostDisplay(SectionBuilder &builder, SolarSectionBuilder &solar) {
+	const auto controller = builder.controller();
+	solar.addSettingToggle({
+		.id = u"solar/displayGhostStatus"_q,
+		.title = tr::solar_DisplayGhostStatus(),
+		.getter = &SolarSettings::displayGhostStatus,
+		.setter = &SolarSettings::setDisplayGhostStatus,
+	});
+	builder.addButton({
+		.id = u"solar/ghostModeHotkey"_q,
+		.title = tr::solar_GhostModeHotkey(),
+		.st = &st::settingsButtonNoIcon,
+		.label = SolarSettings::getInstance().ghostModeShortcutValue(),
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			controller->show(Box<EditMarkBox>(
+				tr::solar_GhostModeHotkey(),
+				SolarSettings::getInstance().ghostModeShortcut(),
+				u"Ctrl+Shift+G"_q,
+				[](const QString &value) {
+					SolarSettings::getInstance().setGhostModeShortcut(value.trimmed());
+				}));
+		},
+	});
+}
+
 void BuildSpyEssentials(SectionBuilder &builder, SolarSectionBuilder &solar) {
+	const auto controller = builder.controller();
+	auto *settings = &SolarSettings::getInstance();
+
 	builder.addSubsectionTitle(tr::solar_SpyEssentialsHeader());
 
-	solar.addSettingToggle({
-		.id = u"solar/saveDeletedMessages"_q,
-		.title = tr::solar_SaveDeletedMessages(),
-		.getter = &SolarSettings::saveDeletedMessages,
-		.setter = &SolarSettings::setSaveDeletedMessages,
+	solar.addChooseButton({
+		.id = u"solar/deletedSaveMode"_q,
+		.altIds = { u"solar/saveDeletedMessages"_q },
+		.title = tr::solar_DeletedSaveMode(),
+		.boxTitle = tr::solar_DeletedSaveMode(),
+		.initialSelection = static_cast<int>(settings->deletedSaveMode()),
+		.options = {
+			tr::solar_DeletedSaveModeOff(tr::now),
+			tr::solar_DeletedSaveModeSession(tr::now),
+			tr::solar_DeletedSaveModePersistent(tr::now),
+		},
+		.setter = [](int index) {
+			SolarSettings::getInstance().setDeletedSaveMode(
+				static_cast<DeletedSaveMode>(index));
+		},
 	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_DeletedSaveModeAbout());
+	builder.addSkip();
+
 	solar.addSettingToggle({
 		.id = u"solar/saveMessagesHistory"_q,
 		.title = tr::solar_SaveMessagesHistory(),
@@ -647,13 +741,447 @@ void BuildSpyEssentials(SectionBuilder &builder, SolarSectionBuilder &solar) {
 		.setter = &SolarSettings::setSaveMessagesHistory,
 	});
 
-	solar.addSectionDivider();
+	solar.addCollapsibleToggle({
+		.id = u"solar/saveMedia"_q,
+		.altIds = { u"solar/saveForBots"_q },
+		.title = tr::solar_SaveMedia(),
+		.checkboxes = {
+			NestedEntry{
+				tr::solar_SaveMediaPrivate(tr::now),
+				[] { return SolarSettings::getInstance().saveMediaPrivate(); },
+				[](bool v) { SolarSettings::getInstance().setSaveMediaPrivate(v); },
+			},
+			NestedEntry{
+				tr::solar_SaveMediaGroups(tr::now),
+				[] { return SolarSettings::getInstance().saveMediaGroups(); },
+				[](bool v) { SolarSettings::getInstance().setSaveMediaGroups(v); },
+			},
+			NestedEntry{
+				tr::solar_SaveMediaChannels(tr::now),
+				[] { return SolarSettings::getInstance().saveMediaChannels(); },
+				[](bool v) { SolarSettings::getInstance().setSaveMediaChannels(v); },
+			},
+			NestedEntry{
+				tr::solar_SaveMediaBots(tr::now),
+				[] { return SolarSettings::getInstance().saveMediaBots(); },
+				[](bool v) { SolarSettings::getInstance().setSaveMediaBots(v); },
+			},
+			NestedEntry{
+				tr::solar_SaveMediaStickers(tr::now),
+				[] { return SolarSettings::getInstance().saveMediaStickers(); },
+				[](bool v) { SolarSettings::getInstance().setSaveMediaStickers(v); },
+			},
+		},
+		.toggledWhenAll = false,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_SaveMediaAbout());
+	builder.addSkip();
+
+	solar.addSlider({
+		.id = u"solar/attachmentsMaxSize"_q,
+		.title = tr::solar_AttachmentsMaxSize(),
+		.steps = 20,
+		.current = std::clamp((settings->attachmentsMaxSizeMb() / 512) - 1, 0, 19),
+		.indexToValue = [](int index) { return (index + 1) * 512; },
+		.onChanged = nullptr,
+		.onFinalChanged = [](int mb) {
+			SolarSettings::getInstance().setAttachmentsMaxSizeMb(mb);
+		},
+		.formatLabel = [](int mb) {
+			if (mb < 1024) {
+				return u"%1 MB"_q.arg(mb);
+			}
+			const auto gb = mb / 1024.0;
+			return u"%1 %2"_q.arg(
+				QString::number(gb, 'f', (mb % 1024 == 0) ? 0 : 1),
+				tr::solar_AttachmentsMaxSizeGb(tr::now));
+		},
+	});
 
 	solar.addSettingToggle({
-		.id = u"solar/saveForBots"_q,
-		.title = tr::solar_MessageSavingSaveForBots(),
-		.getter = &SolarSettings::saveForBots,
-		.setter = &SolarSettings::setSaveForBots,
+		.id = u"solar/keepOneViewMedia"_q,
+		.title = tr::solar_KeepOneViewMedia(),
+		.getter = &SolarSettings::keepOneViewMedia,
+		.setter = &SolarSettings::setKeepOneViewMedia,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/spySaveReadMarks"_q,
+		.title = tr::solar_SpySaveReadMarks(),
+		.getter = &SolarSettings::spySaveReadMarks,
+		.setter = &SolarSettings::setSpySaveReadMarks,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/spySaveLocalOnline"_q,
+		.title = tr::solar_SpySaveLocalOnline(),
+		.getter = &SolarSettings::spySaveLocalOnline,
+		.setter = &SolarSettings::setSpySaveLocalOnline,
+	});
+
+	builder.addButton({
+		.id = u"solar/openAttachmentsFolder"_q,
+		.title = tr::solar_OpenAttachmentsFolder(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [] {
+			const auto folder = SolarMessages::getAttachmentsFolderPath();
+			QDir().mkpath(folder);
+			QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+		},
+	});
+	builder.addButton({
+		.id = u"solar/attachmentsClear"_q,
+		.title = tr::solar_AttachmentsClear(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [weak = base::make_weak(controller)] {
+			SolarMessages::clearAttachmentsFolder();
+			if (const auto c = weak.get()) {
+				c->showToast(tr::solar_AttachmentsCleared(tr::now));
+			}
+		},
+	});
+	builder.addButton({
+		.id = u"solar/clearDeletedMessages"_q,
+		.title = tr::solar_ClearDeletedMessages(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [weak = base::make_weak(controller)] {
+			const auto c = weak.get();
+			if (!c) {
+				return;
+			}
+			c->show(Ui::MakeConfirmBox({
+				.text = tr::solar_ClearDeletedConfirm(tr::now),
+				.confirmed = [weak](Fn<void()> &&close) {
+					SolarMessages::clearAllDeletedMessages();
+					close();
+					if (const auto c2 = weak.get()) {
+						c2->showToast(tr::solar_DeletedMessagesCleared(tr::now));
+					}
+				},
+				.confirmText = tr::lng_box_yes(),
+				.cancelText = tr::lng_cancel(),
+				.confirmStyle = &st::attentionBoxButton,
+			}));
+		},
+	});
+}
+
+void BuildPartisanSecurity(SectionBuilder &builder, SolarSectionBuilder &solar) {
+	const auto controller = builder.controller();
+	auto *settings = &SolarSettings::getInstance();
+
+	builder.addSubsectionTitle(tr::solar_PartisanTitle());
+
+	builder.addButton({
+		.id = u"solar/duressPin"_q,
+		.title = tr::solar_DuressPin(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [weak = base::make_weak(controller)] {
+			const auto c = weak.get();
+			if (!c) {
+				return;
+			}
+			ShowSolarPinBox(
+				c,
+				tr::solar_DuressSetPin(),
+				tr::solar_DuressPinPlaceholder(),
+				std::nullopt,
+				SolarSettings::getInstance().hasDuressPin(),
+				[weak](const QString &pin) {
+					SolarSettings::getInstance().setDuressPin(pin);
+					if (const auto c2 = weak.get()) {
+						c2->showToast(tr::lng_box_done(tr::now));
+					}
+				},
+				[weak] {
+					SolarSettings::getInstance().clearDuressPin();
+					if (const auto c2 = weak.get()) {
+						c2->showToast(tr::lng_box_done(tr::now));
+					}
+				});
+		},
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_DuressPinAbout());
+	builder.addSkip();
+
+	solar.addChooseButton({
+		.id = u"solar/duressAction"_q,
+		.title = tr::solar_DuressAction(),
+		.boxTitle = tr::solar_DuressAction(),
+		.initialSelection = static_cast<int>(settings->duressAction()),
+		.options = {
+			tr::solar_DuressActionDecoy(tr::now),
+			tr::solar_DuressActionWipe(tr::now),
+		},
+		.setter = [](int index) {
+			SolarSettings::getInstance().setDuressAction(
+				static_cast<DuressAction>(index));
+		},
+	});
+
+	builder.addButton({
+		.id = u"solar/hiddenChatsPin"_q,
+		.title = tr::solar_HiddenChatsTitle(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [weak = base::make_weak(controller)] {
+			const auto c = weak.get();
+			if (!c) {
+				return;
+			}
+			ShowSolarPinBox(
+				c,
+				tr::solar_HiddenChatsTitle(),
+				tr::solar_DuressPinPlaceholder(),
+				std::nullopt,
+				SolarSettings::getInstance().hasHiddenChatsPin(),
+				[weak](const QString &pin) {
+					SolarSettings::getInstance().setHiddenChatsPin(pin);
+					if (const auto c2 = weak.get()) {
+						c2->showToast(tr::lng_box_done(tr::now));
+					}
+				},
+				[weak] {
+					SolarSettings::getInstance().clearHiddenChatsPin();
+					if (const auto c2 = weak.get()) {
+						c2->showToast(tr::lng_box_done(tr::now));
+					}
+				});
+		},
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_HiddenChatsAbout());
+	builder.addSkip();
+
+	builder.addButton({
+		.id = u"solar/panicWipe"_q,
+		.title = tr::solar_PanicWipe(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			controller->show(Ui::MakeConfirmBox({
+				.text = tr::solar_PanicWipeConfirm(tr::now),
+				.confirmed = [](Fn<void()> &&close) {
+					close();
+					SolarHotkeys::TriggerPanicWipe();
+				},
+				.confirmText = tr::lng_box_yes(),
+				.cancelText = tr::lng_cancel(),
+				.confirmStyle = &st::attentionBoxButton,
+			}));
+		},
+	});
+
+	solar.addSettingToggle({
+		.id = u"solar/globalHotkeys"_q,
+		.title = tr::solar_GlobalHotkeys(),
+		.getter = &SolarSettings::globalHotkeysEnabled,
+		.setter = &SolarSettings::setGlobalHotkeysEnabled,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_GlobalHotkeysAbout());
+	builder.addSkip();
+
+	solar.addSettingToggle({
+		.id = u"solar/presenceLogger"_q,
+		.title = tr::solar_PresenceLogger(),
+		.getter = &SolarSettings::presenceLoggerEnabled,
+		.setter = &SolarSettings::setPresenceLoggerEnabled,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/rememberLastSeen"_q,
+		.title = tr::solar_RememberLastSeen(),
+		.getter = &SolarSettings::rememberLastSeen,
+		.setter = &SolarSettings::setRememberLastSeen,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/presenceOnlineAlerts"_q,
+		.title = tr::solar_PresenceOnlineAlerts(),
+		.getter = &SolarSettings::presenceOnlineAlerts,
+		.setter = &SolarSettings::setPresenceOnlineAlerts,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/phishingGuard"_q,
+		.title = tr::solar_PhishingGuard(),
+		.getter = &SolarSettings::phishingGuard,
+		.setter = &SolarSettings::setPhishingGuard,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/confirmExternalLinks"_q,
+		.title = tr::solar_ConfirmExternalLinks(),
+		.getter = &SolarSettings::confirmExternalLinks,
+		.setter = &SolarSettings::setConfirmExternalLinks,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/blockExternalLookups"_q,
+		.title = tr::solar_BlockExternalLookups(),
+		.getter = &SolarSettings::blockExternalLookups,
+		.setter = &SolarSettings::setBlockExternalLookups,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_BlockExternalLookupsAbout());
+	builder.addSkip();
+
+	solar.addSettingToggle({
+		.id = u"solar/deviceSpoof"_q,
+		.title = tr::solar_DeviceSpoof(),
+		.getter = &SolarSettings::deviceSpoofEnabled,
+		.setter = &SolarSettings::setDeviceSpoofEnabled,
+	});
+	builder.addButton({
+		.id = u"solar/deviceSpoofModel"_q,
+		.title = tr::solar_DeviceSpoofModel(),
+		.st = &st::settingsButtonNoIcon,
+		.label = settings->deviceSpoofModelValue(),
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			controller->show(Box<EditMarkBox>(
+				tr::solar_DeviceSpoofModel(),
+				SolarSettings::getInstance().deviceSpoofModel(),
+				u"SolarGram Workstation"_q,
+				[](const QString &value) {
+					SolarSettings::getInstance().setDeviceSpoofModel(value.trimmed());
+				}));
+		},
+	});
+	builder.addButton({
+		.id = u"solar/deviceSpoofSystem"_q,
+		.title = tr::solar_DeviceSpoofSystem(),
+		.st = &st::settingsButtonNoIcon,
+		.label = settings->deviceSpoofSystemValue(),
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			controller->show(Box<EditMarkBox>(
+				tr::solar_DeviceSpoofSystem(),
+				SolarSettings::getInstance().deviceSpoofSystem(),
+				u"Windows 11"_q,
+				[](const QString &value) {
+					SolarSettings::getInstance().setDeviceSpoofSystem(value.trimmed());
+				}));
+		},
+	});
+	builder.addButton({
+		.id = u"solar/deviceSpoofAppVersion"_q,
+		.title = tr::solar_DeviceSpoofAppVersion(),
+		.st = &st::settingsButtonNoIcon,
+		.label = settings->deviceSpoofAppVersionValue(),
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			controller->show(Box<EditMarkBox>(
+				tr::solar_DeviceSpoofAppVersion(),
+				SolarSettings::getInstance().deviceSpoofAppVersion(),
+				u"5.10.3"_q,
+				[](const QString &value) {
+					SolarSettings::getInstance().setDeviceSpoofAppVersion(value.trimmed());
+				}));
+		},
+	});
+	builder.addButton({
+		.id = u"solar/deviceSpoofLangCode"_q,
+		.title = tr::solar_DeviceSpoofLangCode(),
+		.st = &st::settingsButtonNoIcon,
+		.label = settings->deviceSpoofLangCodeValue(),
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			controller->show(Box<EditMarkBox>(
+				tr::solar_DeviceSpoofLangCode(),
+				SolarSettings::getInstance().deviceSpoofLangCode(),
+				u"en"_q,
+				[](const QString &value) {
+					SolarSettings::getInstance().setDeviceSpoofLangCode(value.trimmed());
+				}));
+		},
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_DeviceSpoofAbout());
+	builder.addSkip();
+
+	builder.addButton({
+		.id = u"solar/exportBackup"_q,
+		.title = tr::solar_ExportBackup(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			const auto weak = base::make_weak(controller);
+			FileDialog::GetWritePath(
+				controller->widget(),
+				tr::solar_ExportBackup(tr::now),
+				u"JSON Files (*.json)"_q,
+				u"solargram_backup.json"_q,
+				[=](QString &&path) {
+					if (path.isEmpty()) {
+						return;
+					}
+					const auto ok = SolarDatabase::exportBackupJson(
+						path,
+						SolarSettings::getInstance().exportToJsonObject());
+					if (const auto c = weak.get()) {
+						c->showToast(ok
+							? tr::solar_BackupExported(tr::now)
+							: tr::solar_BackupFailed(tr::now));
+					}
+				});
+		},
+	});
+	builder.addButton({
+		.id = u"solar/importBackup"_q,
+		.title = tr::solar_ImportBackup(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			if (!controller) {
+				return;
+			}
+			const auto weak = base::make_weak(controller);
+			FileDialog::GetOpenPath(
+				controller->widget(),
+				tr::solar_ImportBackup(tr::now),
+				u"JSON Files (*.json)"_q,
+				[=](FileDialog::OpenResult &&result) {
+					if (result.paths.isEmpty()) {
+						return;
+					}
+					const auto c = weak.get();
+					if (!c) {
+						return;
+					}
+					const auto path = result.paths.front();
+					c->show(Box([=](not_null<Ui::GenericBox*> box) {
+						SingleChoiceBox(box, {
+							.title = tr::solar_ImportBackupMode(),
+							.options = {
+								tr::solar_ImportMerge(tr::now),
+								tr::solar_ImportReplace(tr::now),
+							},
+							.initialSelection = 0,
+							.callback = [=](int index) {
+								const auto replace = (index == 1);
+								const auto imported = SolarDatabase::importBackupJson(
+									path,
+									replace);
+								if (const auto c2 = weak.get()) {
+									if (imported.has_value()) {
+										SolarSettings::getInstance().importFromJsonObject(*imported);
+										c2->showToast(tr::solar_BackupImported(tr::now));
+									} else {
+										c2->showToast(tr::solar_BackupFailed(tr::now));
+									}
+								}
+							},
+						});
+					}));
+				});
+		},
 	});
 }
 
@@ -696,9 +1224,13 @@ const auto kMeta = BuildHelper({
 
 	builder.addSkip();
 	BuildGhostEssentials(builder);
+	BuildGhostDisplay(builder, solar);
 
 	builder.addSkip();
 	BuildSpyEssentials(builder, solar);
+
+	solar.addSectionDivider();
+	BuildPartisanSecurity(builder, solar);
 
 	solar.addSectionDivider();
 	BuildOther(builder, solar);

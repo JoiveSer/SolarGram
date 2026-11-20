@@ -8,8 +8,11 @@
 #include "rpl/producer.h"
 #include "rpl/variable.h"
 
+#include <QtCore/QJsonObject>
+
 #include <map>
 #include <unordered_set>
+#include <vector>
 
 
 namespace Main {
@@ -39,12 +42,42 @@ enum class TranslationProvider {
 	Google = 1,
 	Yandex = 2,
 	Native = 3,
+	DeepLX = 4,
+	TranSmart = 5,
+	SolarBrainLLM = 6,
+};
+
+enum class ChatExclusionMode {
+	GlobalDefault = 0,
+	ForceAllow = 1,
+	ForceBlock = 2,
+};
+
+struct PerChatGhostPolicy {
+	ChatExclusionMode readMessages = ChatExclusionMode::GlobalDefault;
+	ChatExclusionMode readStories = ChatExclusionMode::GlobalDefault;
+	ChatExclusionMode onlinePackets = ChatExclusionMode::GlobalDefault;
+	ChatExclusionMode uploadProgress = ChatExclusionMode::GlobalDefault;
+	ChatExclusionMode offlineAfterOnline = ChatExclusionMode::GlobalDefault;
+
+	bool operator==(const PerChatGhostPolicy &) const = default;
 };
 
 enum class SendWithoutSoundOption {
 	Never = 0,
 	InGhostMode = 1,
 	Always = 2,
+};
+
+enum class DeletedSaveMode {
+	Off = 0,
+	SessionOnly = 1,
+	Persistent = 2,
+};
+
+enum class DuressAction {
+	DecoyEmptyView = 0,
+	SilentPanicWipe = 1,
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(PeerIdDisplay, {
@@ -70,12 +103,32 @@ NLOHMANN_JSON_SERIALIZE_ENUM(TranslationProvider, {
 	{TranslationProvider::Google, "google"},
 	{TranslationProvider::Yandex, "yandex"},
 	{TranslationProvider::Native, "native"},
+	{TranslationProvider::DeepLX, "deeplx"},
+	{TranslationProvider::TranSmart, "transmart"},
+	{TranslationProvider::SolarBrainLLM, "solarbrain"},
 })
 
 NLOHMANN_JSON_SERIALIZE_ENUM(SendWithoutSoundOption, {
 	{SendWithoutSoundOption::Never, 0},
 	{SendWithoutSoundOption::InGhostMode, 1},
 	{SendWithoutSoundOption::Always, 2},
+})
+
+NLOHMANN_JSON_SERIALIZE_ENUM(DeletedSaveMode, {
+	{DeletedSaveMode::Off, 0},
+	{DeletedSaveMode::SessionOnly, 1},
+	{DeletedSaveMode::Persistent, 2},
+})
+
+NLOHMANN_JSON_SERIALIZE_ENUM(ChatExclusionMode, {
+	{ChatExclusionMode::GlobalDefault, 0},
+	{ChatExclusionMode::ForceAllow, 1},
+	{ChatExclusionMode::ForceBlock, 2},
+})
+
+NLOHMANN_JSON_SERIALIZE_ENUM(DuressAction, {
+	{DuressAction::DecoyEmptyView, 0},
+	{DuressAction::SilentPanicWipe, 1},
 })
 
 class GhostModeAccountSettings {
@@ -87,6 +140,7 @@ public:
 	[[nodiscard]] bool sendOnlinePackets() const { return _sendOnlinePackets.current(); }
 	[[nodiscard]] bool sendUploadProgress() const { return _sendUploadProgress.current(); }
 	[[nodiscard]] bool sendOfflinePacketAfterOnline() const { return _sendOfflinePacketAfterOnline.current(); }
+	[[nodiscard]] bool onlineBlink() const { return _onlineBlink.current(); }
 	[[nodiscard]] bool markReadAfterAction() const { return _markReadAfterAction.current(); }
 	[[nodiscard]] bool useScheduledMessages() const { return _useScheduledMessages.current(); }
 	[[nodiscard]] SendWithoutSoundOption sendWithoutSound() const { return _sendWithoutSound.current(); }
@@ -106,6 +160,7 @@ public:
 	void setSendOnlinePackets(bool val);
 	void setSendUploadProgress(bool val);
 	void setSendOfflinePacketAfterOnline(bool val);
+	void setOnlineBlink(bool val);
 	void setMarkReadAfterAction(bool val);
 	void setUseScheduledMessages(bool val);
 	void setSendWithoutSound(SendWithoutSoundOption val);
@@ -128,6 +183,7 @@ public:
 	[[nodiscard]] rpl::producer<bool> sendUploadProgressChanges() const { return _sendUploadProgress.changes(); }
 	[[nodiscard]] rpl::producer<bool> sendOfflinePacketAfterOnlineValue() const { return _sendOfflinePacketAfterOnline.value(); }
 	[[nodiscard]] rpl::producer<bool> sendOfflinePacketAfterOnlineChanges() const { return _sendOfflinePacketAfterOnline.changes(); }
+	[[nodiscard]] rpl::producer<bool> onlineBlinkValue() const { return _onlineBlink.value(); }
 	[[nodiscard]] rpl::producer<bool> markReadAfterActionValue() const { return _markReadAfterAction.value(); }
 	[[nodiscard]] rpl::producer<bool> markReadAfterActionChanges() const { return _markReadAfterAction.changes(); }
 	[[nodiscard]] rpl::producer<bool> useScheduledMessagesValue() const { return _useScheduledMessages.value(); }
@@ -161,6 +217,7 @@ private:
 	rpl::variable<bool> _sendOnlinePackets = true;
 	rpl::variable<bool> _sendUploadProgress = true;
 	rpl::variable<bool> _sendOfflinePacketAfterOnline = false;
+	rpl::variable<bool> _onlineBlink = false;
 	rpl::variable<bool> _markReadAfterAction = true;
 	rpl::variable<bool> _useScheduledMessages = false;
 	rpl::variable<SendWithoutSoundOption> _sendWithoutSound = SendWithoutSoundOption::Never;
@@ -237,8 +294,8 @@ class SolarSettings {
 public:
 	SolarSettings(const SolarSettings &) = delete;
 	SolarSettings &operator=(const SolarSettings &) = delete;
-	SolarSettings(SolarSettings &&) noexcept = default;
-	SolarSettings &operator=(SolarSettings &&) noexcept = default;
+	SolarSettings(SolarSettings &&) = default;
+	SolarSettings &operator=(SolarSettings &&) = default;
 
 	[[nodiscard]] static SolarSettings &getInstance();
 
@@ -261,9 +318,73 @@ public:
 	[[nodiscard]] bool isShadowBanned(const int64 id) const { return _shadowBanIds.contains(id); }
 	[[nodiscard]] const std::unordered_set<int64> &shadowBanIds() const { return _shadowBanIds; }
 
+	void setSavingExcluded(int64 dialogId, bool excluded);
+	[[nodiscard]] bool isSavingExcluded(int64 dialogId) const { return _savingExclusions.contains(dialogId); }
+	[[nodiscard]] const std::unordered_set<int64> &savingExclusions() const { return _savingExclusions; }
+
+	void setReadExclusion(int64 dialogId, ChatExclusionMode mode);
+	[[nodiscard]] ChatExclusionMode readExclusion(int64 dialogId) const;
+	[[nodiscard]] bool effectiveShouldRead(not_null<Main::Session*> session, int64 dialogId) const;
+	[[nodiscard]] bool effectiveShouldRead(uint64 userId, int64 dialogId) const;
+
+	void setTypingExclusion(int64 dialogId, ChatExclusionMode mode);
+	[[nodiscard]] ChatExclusionMode typingExclusion(int64 dialogId) const;
+	[[nodiscard]] bool effectiveShouldSendTyping(not_null<Main::Session*> session, int64 dialogId) const;
+	[[nodiscard]] bool effectiveShouldSendTyping(uint64 userId, int64 dialogId) const;
+
+	void setPerChatGhostPolicy(int64 dialogId, const PerChatGhostPolicy &policy);
+	[[nodiscard]] PerChatGhostPolicy perChatGhostPolicy(int64 dialogId) const;
+	[[nodiscard]] bool effectiveShouldReadStories(not_null<Main::Session*> session, int64 dialogId) const;
+	[[nodiscard]] bool effectiveShouldSendOnline(not_null<Main::Session*> session, int64 dialogId) const;
+	[[nodiscard]] bool effectiveShouldOfflineAfterOnline(not_null<Main::Session*> session, int64 dialogId) const;
+
+	void setPeerWatched(int64 dialogId, bool watched);
+	[[nodiscard]] bool isPeerWatched(int64 dialogId) const { return _watchedPeerIds.contains(dialogId); }
+	[[nodiscard]] const std::unordered_set<int64> &watchedPeerIds() const { return _watchedPeerIds; }
+
+	void pushRecentChat(int64 peerId);
+	void clearRecentChats();
+	[[nodiscard]] const std::vector<int64> &recentChatIds() const { return _recentChatIds; }
+
+	void setDuressPin(const QString &pin);
+	void clearDuressPin();
+	[[nodiscard]] bool hasDuressPin() const { return !_duressPinHash.current().isEmpty(); }
+	[[nodiscard]] bool verifyDuressPin(const QString &pin) const;
+	[[nodiscard]] bool decoyModeActive() const { return _decoyModeActive.current(); }
+	void setDecoyModeActive(bool active);
+	[[nodiscard]] rpl::producer<bool> decoyModeActiveValue() const { return _decoyModeActive.value(); }
+
+	void setHiddenChatsPin(const QString &pin);
+	void clearHiddenChatsPin();
+	[[nodiscard]] bool hasHiddenChatsPin() const { return !_hiddenChatsPinHash.current().isEmpty(); }
+	[[nodiscard]] bool verifyHiddenChatsPin(const QString &pin) const;
+	void hideChat(int64 id);
+	void unhideChat(int64 id);
+	[[nodiscard]] bool isChatHidden(int64 id) const { return _hiddenChatIds.contains(id); }
+	[[nodiscard]] const std::unordered_set<int64> &hiddenChatIds() const { return _hiddenChatIds; }
+	[[nodiscard]] bool hiddenChatsRevealed() const { return _hiddenChatsRevealed.current(); }
+	void setHiddenChatsRevealed(bool revealed);
+	[[nodiscard]] rpl::producer<bool> hiddenChatsRevealedValue() const { return _hiddenChatsRevealed.value(); }
+
+	[[nodiscard]] QJsonObject exportToJsonObject() const;
+	bool importFromJsonObject(const QJsonObject &obj);
+
+	struct DeviceSpoofSnapshot {
+		bool enabled = false;
+		QString model;
+		QString system;
+		QString appVersion;
+		QString langCode;
+	};
+	[[nodiscard]] DeviceSpoofSnapshot deviceSpoofSnapshot() const;
+
 	void validate();
 
-	[[nodiscard]] bool saveDeletedMessages() const { return _saveDeletedMessages.current(); }
+	[[nodiscard]] bool saveDeletedMessages() const {
+		return (_deletedSaveMode.current() != DeletedSaveMode::Off)
+			&& _saveDeletedMessages.current();
+	}
+	[[nodiscard]] DeletedSaveMode deletedSaveMode() const { return _deletedSaveMode.current(); }
 	[[nodiscard]] bool saveMessagesHistory() const { return _saveMessagesHistory.current(); }
 	[[nodiscard]] bool saveForBots() const { return _saveForBots.current(); }
 	[[nodiscard]] bool filtersEnabled() const { return _filtersEnabled.current(); }
@@ -362,6 +483,52 @@ public:
 	[[nodiscard]] const QString &solarBrainEndpoint() const { return _solarBrainEndpoint.current(); }
 	[[nodiscard]] const QString &solarBrainModel() const { return _solarBrainModel.current(); }
 
+	[[nodiscard]] bool saveMediaPrivate() const { return _saveMediaPrivate.current(); }
+	[[nodiscard]] bool saveMediaGroups() const { return _saveMediaGroups.current(); }
+	[[nodiscard]] bool saveMediaChannels() const { return _saveMediaChannels.current(); }
+	[[nodiscard]] bool saveMediaBots() const { return _saveMediaBots.current(); }
+	[[nodiscard]] bool saveMediaStickers() const { return _saveMediaStickers.current(); }
+	[[nodiscard]] int attachmentsMaxSizeMb() const { return _attachmentsMaxSizeMb.current(); }
+	[[nodiscard]] bool keepOneViewMedia() const { return _keepOneViewMedia.current(); }
+	[[nodiscard]] bool spySaveReadMarks() const { return _spySaveReadMarks.current(); }
+	[[nodiscard]] bool spySaveLocalOnline() const { return _spySaveLocalOnline.current(); }
+	[[nodiscard]] bool displayGhostStatus() const { return _displayGhostStatus.current(); }
+	[[nodiscard]] const QString &ghostModeShortcut() const { return _ghostModeShortcut.current(); }
+	[[nodiscard]] bool uploadSpeedBoost() const { return _uploadSpeedBoost.current(); }
+	[[nodiscard]] bool copyUsernameAsLink() const { return _copyUsernameAsLink.current(); }
+	[[nodiscard]] bool walMode() const { return _walMode.current(); }
+	[[nodiscard]] const QString &mainFont() const { return _mainFont.current(); }
+	[[nodiscard]] DuressAction duressAction() const { return _duressAction.current(); }
+	[[nodiscard]] bool globalHotkeysEnabled() const { return _globalHotkeysEnabled.current(); }
+	[[nodiscard]] bool streamerMaskPrivacy() const { return _streamerMaskPrivacy.current(); }
+	[[nodiscard]] bool streamerMaskNotifications() const { return _streamerMaskNotifications.current(); }
+	[[nodiscard]] bool deleteForAllByDefault() const { return _deleteForAllByDefault.current(); }
+	[[nodiscard]] bool showAlwaysOnTopButton() const { return _showAlwaysOnTopButton.current(); }
+	[[nodiscard]] bool seekbarForRoundVideos() const { return _seekbarForRoundVideos.current(); }
+	[[nodiscard]] bool textReplacementsEnabled() const { return _textReplacementsEnabled.current(); }
+	[[nodiscard]] bool localFoldersEnabled() const { return _localFoldersEnabled.current(); }
+	[[nodiscard]] bool presenceLoggerEnabled() const { return _presenceLoggerEnabled.current(); }
+	[[nodiscard]] bool rememberLastSeen() const { return _rememberLastSeen.current(); }
+	[[nodiscard]] bool stripImageExif() const { return _stripImageExif.current(); }
+	[[nodiscard]] bool forcedCopy() const { return _forcedCopy.current(); }
+	[[nodiscard]] bool deviceSpoofEnabled() const { return _deviceSpoofEnabled.current(); }
+	[[nodiscard]] const QString &deviceSpoofModel() const { return _deviceSpoofModel.current(); }
+	[[nodiscard]] const QString &deviceSpoofSystem() const { return _deviceSpoofSystem.current(); }
+	[[nodiscard]] const QString &deviceSpoofAppVersion() const { return _deviceSpoofAppVersion.current(); }
+	[[nodiscard]] const QString &deviceSpoofLangCode() const { return _deviceSpoofLangCode.current(); }
+	[[nodiscard]] bool blockExternalLookups() const { return _blockExternalLookups.current(); }
+	[[nodiscard]] bool randomDownloadNames() const { return _randomDownloadNames.current(); }
+	[[nodiscard]] bool confirmExternalLinks() const { return _confirmExternalLinks.current(); }
+	[[nodiscard]] bool phishingGuard() const { return _phishingGuard.current(); }
+	[[nodiscard]] bool presenceOnlineAlerts() const { return _presenceOnlineAlerts.current(); }
+	[[nodiscard]] bool downloadSpeedBoost() const { return _downloadSpeedBoost.current(); }
+	[[nodiscard]] bool panguSpacing() const { return _panguSpacing.current(); }
+	[[nodiscard]] bool stripForeignAgentDisclaimers() const { return _stripForeignAgentDisclaimers.current(); }
+	[[nodiscard]] bool hideBirthdays() const { return _hideBirthdays.current(); }
+	[[nodiscard]] bool hideGiftsUi() const { return _hideGiftsUi.current(); }
+	[[nodiscard]] bool unreadChatsFirst() const { return _unreadChatsFirst.current(); }
+
+	void setDeletedSaveMode(DeletedSaveMode val);
 	void setSaveDeletedMessages(bool val);
 	void setSaveMessagesHistory(bool val);
 	void setSaveForBots(bool val);
@@ -460,6 +627,51 @@ public:
 	void setSolarBrainEnabled(bool val);
 	void setSolarBrainEndpoint(const QString &val);
 	void setSolarBrainModel(const QString &val);
+
+	void setSaveMediaPrivate(bool val);
+	void setSaveMediaGroups(bool val);
+	void setSaveMediaChannels(bool val);
+	void setSaveMediaBots(bool val);
+	void setSaveMediaStickers(bool val);
+	void setAttachmentsMaxSizeMb(int val);
+	void setKeepOneViewMedia(bool val);
+	void setSpySaveReadMarks(bool val);
+	void setSpySaveLocalOnline(bool val);
+	void setDisplayGhostStatus(bool val);
+	void setGhostModeShortcut(const QString &val);
+	void setUploadSpeedBoost(bool val);
+	void setCopyUsernameAsLink(bool val);
+	void setWalMode(bool val);
+	void setMainFont(const QString &val);
+	void setDuressAction(DuressAction val);
+	void setGlobalHotkeysEnabled(bool val);
+	void setStreamerMaskPrivacy(bool val);
+	void setStreamerMaskNotifications(bool val);
+	void setDeleteForAllByDefault(bool val);
+	void setShowAlwaysOnTopButton(bool val);
+	void setSeekbarForRoundVideos(bool val);
+	void setTextReplacementsEnabled(bool val);
+	void setLocalFoldersEnabled(bool val);
+	void setPresenceLoggerEnabled(bool val);
+	void setRememberLastSeen(bool val);
+	void setStripImageExif(bool val);
+	void setForcedCopy(bool val);
+	void setDeviceSpoofEnabled(bool val);
+	void setDeviceSpoofModel(const QString &val);
+	void setDeviceSpoofSystem(const QString &val);
+	void setDeviceSpoofAppVersion(const QString &val);
+	void setDeviceSpoofLangCode(const QString &val);
+	void setBlockExternalLookups(bool val);
+	void setRandomDownloadNames(bool val);
+	void setConfirmExternalLinks(bool val);
+	void setPhishingGuard(bool val);
+	void setPresenceOnlineAlerts(bool val);
+	void setDownloadSpeedBoost(bool val);
+	void setPanguSpacing(bool val);
+	void setStripForeignAgentDisclaimers(bool val);
+	void setHideBirthdays(bool val);
+	void setHideGiftsUi(bool val);
+	void setUnreadChatsFirst(bool val);
 
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeValue() const { return _useGlobalGhostMode.value(); }
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeChanges() const { return _useGlobalGhostMode.changes(); }
@@ -660,6 +872,59 @@ public:
 	[[nodiscard]] rpl::producer<QString> solarBrainModelValue() const { return _solarBrainModel.value(); }
 	[[nodiscard]] rpl::producer<QString> solarBrainModelChanges() const { return _solarBrainModel.changes(); }
 
+	[[nodiscard]] rpl::producer<DeletedSaveMode> deletedSaveModeValue() const { return _deletedSaveMode.value(); }
+	[[nodiscard]] rpl::producer<DeletedSaveMode> deletedSaveModeChanges() const { return _deletedSaveMode.changes(); }
+	[[nodiscard]] rpl::producer<bool> saveMediaPrivateValue() const { return _saveMediaPrivate.value(); }
+	[[nodiscard]] rpl::producer<bool> saveMediaGroupsValue() const { return _saveMediaGroups.value(); }
+	[[nodiscard]] rpl::producer<bool> saveMediaChannelsValue() const { return _saveMediaChannels.value(); }
+	[[nodiscard]] rpl::producer<bool> saveMediaBotsValue() const { return _saveMediaBots.value(); }
+	[[nodiscard]] rpl::producer<bool> saveMediaStickersValue() const { return _saveMediaStickers.value(); }
+	[[nodiscard]] rpl::producer<int> attachmentsMaxSizeMbValue() const { return _attachmentsMaxSizeMb.value(); }
+	[[nodiscard]] rpl::producer<bool> keepOneViewMediaValue() const { return _keepOneViewMedia.value(); }
+	[[nodiscard]] rpl::producer<bool> spySaveReadMarksValue() const { return _spySaveReadMarks.value(); }
+	[[nodiscard]] rpl::producer<bool> spySaveLocalOnlineValue() const { return _spySaveLocalOnline.value(); }
+	[[nodiscard]] rpl::producer<bool> displayGhostStatusValue() const { return _displayGhostStatus.value(); }
+	[[nodiscard]] rpl::producer<bool> displayGhostStatusChanges() const { return _displayGhostStatus.changes(); }
+	[[nodiscard]] rpl::producer<QString> ghostModeShortcutValue() const { return _ghostModeShortcut.value(); }
+	[[nodiscard]] rpl::producer<bool> uploadSpeedBoostValue() const { return _uploadSpeedBoost.value(); }
+	[[nodiscard]] rpl::producer<bool> copyUsernameAsLinkValue() const { return _copyUsernameAsLink.value(); }
+	[[nodiscard]] rpl::producer<bool> walModeValue() const { return _walMode.value(); }
+	[[nodiscard]] rpl::producer<QString> mainFontValue() const { return _mainFont.value(); }
+	[[nodiscard]] rpl::producer<DuressAction> duressActionValue() const { return _duressAction.value(); }
+	[[nodiscard]] rpl::producer<bool> globalHotkeysEnabledValue() const { return _globalHotkeysEnabled.value(); }
+	[[nodiscard]] rpl::producer<bool> streamerMaskPrivacyValue() const { return _streamerMaskPrivacy.value(); }
+	[[nodiscard]] rpl::producer<bool> streamerMaskNotificationsValue() const { return _streamerMaskNotifications.value(); }
+	[[nodiscard]] rpl::producer<bool> deleteForAllByDefaultValue() const { return _deleteForAllByDefault.value(); }
+	[[nodiscard]] rpl::producer<bool> showAlwaysOnTopButtonValue() const { return _showAlwaysOnTopButton.value(); }
+	[[nodiscard]] rpl::producer<bool> showAlwaysOnTopButtonChanges() const { return _showAlwaysOnTopButton.changes(); }
+	[[nodiscard]] rpl::producer<bool> seekbarForRoundVideosValue() const { return _seekbarForRoundVideos.value(); }
+	[[nodiscard]] rpl::producer<bool> textReplacementsEnabledValue() const { return _textReplacementsEnabled.value(); }
+	[[nodiscard]] rpl::producer<bool> localFoldersEnabledValue() const { return _localFoldersEnabled.value(); }
+	[[nodiscard]] rpl::producer<bool> localFoldersEnabledChanges() const { return _localFoldersEnabled.changes(); }
+	[[nodiscard]] rpl::producer<bool> presenceLoggerEnabledValue() const { return _presenceLoggerEnabled.value(); }
+	[[nodiscard]] rpl::producer<bool> rememberLastSeenValue() const { return _rememberLastSeen.value(); }
+	[[nodiscard]] rpl::producer<bool> stripImageExifValue() const { return _stripImageExif.value(); }
+	[[nodiscard]] rpl::producer<bool> forcedCopyValue() const { return _forcedCopy.value(); }
+	[[nodiscard]] rpl::producer<bool> deviceSpoofEnabledValue() const { return _deviceSpoofEnabled.value(); }
+	[[nodiscard]] rpl::producer<QString> deviceSpoofModelValue() const { return _deviceSpoofModel.value(); }
+	[[nodiscard]] rpl::producer<QString> deviceSpoofSystemValue() const { return _deviceSpoofSystem.value(); }
+	[[nodiscard]] rpl::producer<QString> deviceSpoofAppVersionValue() const { return _deviceSpoofAppVersion.value(); }
+	[[nodiscard]] rpl::producer<QString> deviceSpoofLangCodeValue() const { return _deviceSpoofLangCode.value(); }
+	[[nodiscard]] rpl::producer<bool> blockExternalLookupsValue() const { return _blockExternalLookups.value(); }
+	[[nodiscard]] rpl::producer<bool> randomDownloadNamesValue() const { return _randomDownloadNames.value(); }
+	[[nodiscard]] rpl::producer<bool> confirmExternalLinksValue() const { return _confirmExternalLinks.value(); }
+	[[nodiscard]] rpl::producer<bool> phishingGuardValue() const { return _phishingGuard.value(); }
+	[[nodiscard]] rpl::producer<bool> presenceOnlineAlertsValue() const { return _presenceOnlineAlerts.value(); }
+	[[nodiscard]] rpl::producer<bool> downloadSpeedBoostValue() const { return _downloadSpeedBoost.value(); }
+	[[nodiscard]] rpl::producer<bool> panguSpacingValue() const { return _panguSpacing.value(); }
+	[[nodiscard]] rpl::producer<bool> stripForeignAgentDisclaimersValue() const { return _stripForeignAgentDisclaimers.value(); }
+	[[nodiscard]] rpl::producer<bool> hideBirthdaysValue() const { return _hideBirthdays.value(); }
+	[[nodiscard]] rpl::producer<bool> hideGiftsUiValue() const { return _hideGiftsUi.value(); }
+	[[nodiscard]] rpl::producer<bool> unreadChatsFirstValue() const { return _unreadChatsFirst.value(); }
+	[[nodiscard]] rpl::producer<bool> unreadChatsFirstChanges() const { return _unreadChatsFirst.changes(); }
+	[[nodiscard]] rpl::producer<int> savingExclusionsVersionChanges() const { return _savingExclusionsVersion.changes(); }
+	[[nodiscard]] rpl::producer<int> hiddenChatsVersionChanges() const { return _hiddenChatsVersion.changes(); }
+
 	friend void to_json(nlohmann::json &j, const SolarSettings &s);
 	friend void from_json(const nlohmann::json &j, SolarSettings &s);
 
@@ -767,6 +1032,65 @@ private:
 	rpl::variable<bool> _solarBrainEnabled = true;
 	rpl::variable<QString> _solarBrainEndpoint = QStringLiteral("http://127.0.0.1:11434/api/chat");
 	rpl::variable<QString> _solarBrainModel = QStringLiteral("qwen2.5:7b");
+
+	rpl::variable<DeletedSaveMode> _deletedSaveMode = DeletedSaveMode::Persistent;
+	rpl::variable<bool> _saveMediaPrivate = true;
+	rpl::variable<bool> _saveMediaGroups = true;
+	rpl::variable<bool> _saveMediaChannels = false;
+	rpl::variable<bool> _saveMediaBots = false;
+	rpl::variable<bool> _saveMediaStickers = false;
+	rpl::variable<int> _attachmentsMaxSizeMb = 2048;
+	rpl::variable<bool> _keepOneViewMedia = true;
+	rpl::variable<bool> _spySaveReadMarks = true;
+	rpl::variable<bool> _spySaveLocalOnline = true;
+	rpl::variable<bool> _displayGhostStatus = true;
+	rpl::variable<QString> _ghostModeShortcut = QStringLiteral("Ctrl+Shift+G");
+	rpl::variable<bool> _uploadSpeedBoost = false;
+	rpl::variable<bool> _copyUsernameAsLink = true;
+	rpl::variable<bool> _walMode = true;
+	rpl::variable<QString> _mainFont;
+	rpl::variable<QString> _duressPinHash;
+	rpl::variable<DuressAction> _duressAction = DuressAction::DecoyEmptyView;
+	rpl::variable<bool> _decoyModeActive = false;
+	rpl::variable<QString> _hiddenChatsPinHash;
+	std::unordered_set<int64> _hiddenChatIds;
+	rpl::variable<bool> _hiddenChatsRevealed = false;
+	rpl::variable<bool> _globalHotkeysEnabled = true;
+	rpl::variable<bool> _streamerMaskPrivacy = true;
+	rpl::variable<bool> _streamerMaskNotifications = true;
+	rpl::variable<bool> _deleteForAllByDefault = true;
+	rpl::variable<bool> _showAlwaysOnTopButton = true;
+	rpl::variable<bool> _seekbarForRoundVideos = true;
+	rpl::variable<bool> _textReplacementsEnabled = true;
+	rpl::variable<bool> _localFoldersEnabled = true;
+	rpl::variable<bool> _presenceLoggerEnabled = true;
+	rpl::variable<bool> _rememberLastSeen = true;
+	rpl::variable<bool> _stripImageExif = true;
+	rpl::variable<bool> _forcedCopy = false;
+	rpl::variable<bool> _deviceSpoofEnabled = false;
+	rpl::variable<QString> _deviceSpoofModel = QStringLiteral("Workstation Pro");
+	rpl::variable<QString> _deviceSpoofSystem = QStringLiteral("Windows 11");
+	rpl::variable<QString> _deviceSpoofAppVersion;
+	rpl::variable<QString> _deviceSpoofLangCode;
+	rpl::variable<bool> _blockExternalLookups = true;
+	rpl::variable<bool> _randomDownloadNames = false;
+	rpl::variable<bool> _confirmExternalLinks = false;
+	rpl::variable<bool> _phishingGuard = true;
+	rpl::variable<bool> _presenceOnlineAlerts = false;
+	rpl::variable<bool> _downloadSpeedBoost = false;
+	rpl::variable<bool> _panguSpacing = false;
+	rpl::variable<bool> _stripForeignAgentDisclaimers = false;
+	rpl::variable<bool> _hideBirthdays = false;
+	rpl::variable<bool> _hideGiftsUi = false;
+	rpl::variable<bool> _unreadChatsFirst = false;
+	std::unordered_set<int64> _savingExclusions;
+	std::map<int64, ChatExclusionMode> _readExclusions;
+	std::map<int64, ChatExclusionMode> _typingExclusions;
+	std::map<int64, PerChatGhostPolicy> _perChatGhost;
+	std::unordered_set<int64> _watchedPeerIds;
+	std::vector<int64> _recentChatIds;
+	rpl::variable<int> _savingExclusionsVersion = 0;
+	rpl::variable<int> _hiddenChatsVersion = 0;
 
 	rpl::variable<bool> _useGlobalGhostMode = true;
 	std::map<uint64, std::unique_ptr<GhostModeAccountSettings>> _ghostAccounts;

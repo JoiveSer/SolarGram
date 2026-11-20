@@ -109,6 +109,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QTextEdit>
 
 // SolarGram includes
+#include "lang_auto.h"
 #include "solar/solar_settings.h"
 #include "solar/utils/telegram_helpers.h"
 #include "base/platform/base_platform_haptic.h"
@@ -4032,6 +4033,20 @@ QString Widget::validateSearchQuery() {
 void Widget::applySearchUpdate() {
 	auto copy = _searchState;
 	copy.query = validateSearchQuery();
+	if (copy.query.startsWith(u'#') && copy.query.size() > 1) {
+		const auto pin = copy.query.mid(1);
+		auto &solar = SolarSettings::getInstance();
+		if (solar.verifyHiddenChatsPin(pin)) {
+			const auto next = !solar.hiddenChatsRevealed();
+			solar.setHiddenChatsRevealed(next);
+			_search->setText(QString());
+			copy.query.clear();
+			_search->clearFocus();
+			controller()->showToast(next
+				? (tr::solar_HiddenChatsTitle(tr::now) + u" \u2022 Unlocked"_q)
+				: (tr::solar_HiddenChatsTitle(tr::now) + u" \u2022 Locked"_q));
+		}
+	}
 	if (Ui::ScreenReaderModeActive() && !copy.query.isEmpty()) {
 		_searchEngaged = true;
 	}

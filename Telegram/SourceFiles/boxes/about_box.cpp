@@ -34,6 +34,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QClipboard>
 
 // SolarGram includes
+#include "solar/ui/settings/settings_main.h"
 #include "window/window_session_controller.h"
 #include "window/window_session_controller_link_info.h"
 
@@ -88,6 +89,17 @@ void AboutBox(not_null<Ui::GenericBox*> box, Window::SessionController* controll
 	};
 
 	addText(Text());
+
+	const auto creditsBtn = layout->add(
+		object_ptr<Ui::LinkButton>(
+			box,
+			u"Credits & Open-Source Attribution (AyuGram, Partisan, Serein, Kotatogram, etc.)"_q,
+			st::aboutVersionLink),
+		st::boxRowPadding);
+	creditsBtn->setClickedCallback([box] {
+		box->getDelegate()->show(Box(Settings::FillSolarCreditsBox));
+	});
+	Ui::AddSkip(layout, st::aboutSkip);
 
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 	box->addLeftButton(

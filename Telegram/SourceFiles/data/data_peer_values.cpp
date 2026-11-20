@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/data/solar_database.h"
 
 
 namespace Data {
@@ -514,12 +515,19 @@ QString OnlineText(not_null<UserData*> user, TimeId now) {
 }
 
 QString OnlineTextFull(not_null<UserData*> user, TimeId now) {
+	const auto &settings = SolarSettings::getInstance();
 	if (const auto special = OnlineTextSpecial(user)) {
 		return *special;
 	} else if (const auto common = OnlineTextCommon(user->lastseen(), now)) {
+		if (user->lastseen().isHidden() && settings.rememberLastSeen()) {
+			const auto uid = user->session().userId().bare & PeerId::kChatTypeMask;
+			const auto pid = user->id.value & PeerId::kChatTypeMask;
+			if (const auto cachedTill = SolarDatabase::getRememberedLastSeen(uid, pid); cachedTill > 0) {
+				return *common + u" (%1)"_q.arg(OnlineText(LastseenStatus::OnlineTill(cachedTill), now));
+			}
+		}
 		return *common;
 	}
-	const auto &settings = SolarSettings::getInstance();
 	const auto till = user->lastseen().onlineTill();
 	const auto onlineFull = base::unixtime::parse(till);
 	const auto nowFull = base::unixtime::parse(now);

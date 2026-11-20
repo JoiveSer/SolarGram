@@ -750,11 +750,16 @@ int getScheduleTime(int64 sumSize) {
 bool isMessageSavable(const not_null<HistoryItem*> item) {
 	const auto &settings = SolarSettings::getInstance();
 
-	if (!settings.saveDeletedMessages()) {
+	if (settings.deletedSaveMode() == DeletedSaveMode::Off || !settings.saveDeletedMessages()) {
 		return false;
 	}
 
-	if (const auto possiblyBot = item->history()->peer->asUser()) {
+	const auto peer = item->history()->peer;
+	if (settings.isSavingExcluded(getDialogIdFromPeer(peer))) {
+		return false;
+	}
+
+	if (const auto possiblyBot = peer->asUser()) {
 		return !possiblyBot->isBot() || (settings.saveForBots() && possiblyBot->isBot());
 	}
 	return true;

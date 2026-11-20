@@ -31,6 +31,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "storage/storage_account.h"
 #include "apiwrap.h"
+#include "solar/solar_settings.h"
 
 #include <QtCore/QFileInfo>
 
@@ -684,7 +685,10 @@ QByteArray Uploader::readDocPart(not_null<Entry*> entry) {
 
 bool Uploader::canAddDcIndex() const {
 	const auto count = int(_sentPerDcIndex.size());
-	return (count < kMaxSessionsCount)
+	const auto maxSessions = SolarSettings::getInstance().uploadSpeedBoost()
+		? 16
+		: kMaxSessionsCount;
+	return (count < maxSessions)
 		&& (count == int(_dcIndicesWithFastRequests.size()));
 }
 
@@ -797,7 +801,10 @@ auto Uploader::sendDocPart(not_null<Entry*> entry, uchar dcIndex)
 	const auto itemId = entry->itemId;
 	const auto alreadySent = _sentPerDcIndex[dcIndex];
 	const auto willProbablyBeSent = entry->docPartSize;
-	if (alreadySent + willProbablyBeSent > kMaxUploadPerSession) {
+	const auto maxPerSession = SolarSettings::getInstance().uploadSpeedBoost()
+		? (4 * kMaxUploadPerSession)
+		: kMaxUploadPerSession;
+	if (alreadySent + willProbablyBeSent > maxPerSession) {
 		return SendResult::DcIndexFull;
 	}
 
@@ -843,7 +850,10 @@ auto Uploader::sendSlicedPart(not_null<Entry*> entry, uchar dcIndex)
 	const auto itemId = entry->itemId;
 	const auto alreadySent = _sentPerDcIndex[dcIndex];
 	const auto willBeSent = entry->parts->at(entry->partsSent).size();
-	if (alreadySent + willBeSent >= kMaxUploadPerSession) {
+	const auto maxPerSession = SolarSettings::getInstance().uploadSpeedBoost()
+		? (4 * kMaxUploadPerSession)
+		: kMaxUploadPerSession;
+	if (alreadySent + willBeSent >= maxPerSession) {
 		return SendResult::DcIndexFull;
 	}
 
@@ -903,7 +913,10 @@ void Uploader::maybeSend() {
 	if (usedDcIndices.empty()) {
 		_nextTimer.cancel();
 	} else {
-		_nextTimer.callOnce(kUploadRequestInterval);
+		const auto interval = SolarSettings::getInstance().uploadSpeedBoost()
+			? crl::time(25)
+			: kUploadRequestInterval;
+		_nextTimer.callOnce(interval);
 	}
 }
 

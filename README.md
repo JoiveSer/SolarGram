@@ -39,6 +39,32 @@
 ### 5. SolarBrain Local AI Copilot
 - Explicit user-triggered AI assistant panel in message context menus supporting local **Ollama** (`http://127.0.0.1:11434/api/chat`) and OpenAI-compatible endpoints: **Summarize**, **3 Reply Drafts**, **Proofread & Soften**, and **Explain & Extract Action Items**.
 
+### 6. v1.0.1 Combine Upgrades (Anti-Recall, Partisan, Privacy & QoL)
+- **3-Mode Anti-Recall (`Off` / `Until Restart (RAM)` / `Always (Database)`) + Full Media**: Captures and reconstructs photos, documents, stickers, voice notes, round videos, standalone media, and One-Time (`OneViewTTL`) media; RAM vault survives minimizing to tray and clears strictly on full app exit.
+- **Per-Chat Exclusions & Spy History**: Per-dialog Saving/Read/Typing overrides, `Delete (Keep Locally)`, exact Read & Listened timestamps (`ContextActionWithSubText`), `Peek Last Seen`, `Presence History` + `Remembered Last Seen`, and JSON `Export / Import Backup` (`Merge` / `Replace`).
+- **Partisan Security & Hotkeys**: Salted SHA-256 `Duress PIN` (`DecoyEmptyView` / `SilentPanicWipe`), hidden chats behind `#PIN` search, `Panic Wipe` (`Ctrl+Shift+F12`), global `Ctrl+Shift+F10` (Always on Top + header pin button), `Ctrl+Shift+F11` (Streamer Mode), `DisplayGhostStatus` + configurable Ghost hotkey, `Alt+F` / `Alt+C`.
+- **Combine Additions**: Client-side **Local Folders** (`Unread`, `Unmuted`, `Admin`, `Groups`, `Channels`, `Bots`), **Per-Chat Ghost Mode (5/5)** + **Online Blink (~1.5s)**, **Block External Lookups** (blocks iTunes cover leaks), **Anti-Phishing Guards** (unverified phone/Mini-App/fake-Support/external link confirmation), **DeepLX / TranSmart / SolarBrain** translators with Google auto-fallback, **Summarize Chat (Last 50)**, **Pangu CJK-Latin Spacing**, statutory disclaimer stripper, **Quoted Reply on Deleted Messages**, **To Saved (No Author)**, **Unread Chats First**, **Recent Chats (50)** (`Alt+R`), **Watcher Bio Log & Online Alerts**, Streamer phone/`@username`/notification masking, **Device Spoofing** (Model/OS/AppVersion/LangCode), **Strip EXIF/XMP/IPTC**, **Forced Copy & Save**, **Bulk Delete by Period**, **Seekbar on Round Videos**, **Delete for All by Default**, **Text Replacements**, **Upload & Download Speed Boost**, **Random 16-Hex Download Names**, **Prefer IPv6**, **Hide Birthdays/Gifts UI**, **Mutual Contact** label, **Main Font**, and **SQLite WAL Mode**.
+
+---
+
+## Credits & Open-Source Donor Attribution
+SolarGram stands on the shoulders of the open-source Telegram ecosystem (see [docs/COMBINE_ARCHITECTURE.md](docs/COMBINE_ARCHITECTURE.md) and [docs/SOLARGRAM_FEATURES_CATALOG.md](docs/SOLARGRAM_FEATURES_CATALOG.md)):
+- **[Telegram Desktop (`tdesktop`)](https://github.com/telegramdesktop/tdesktop)** — Official GPLv3 desktop client foundation.
+- **[AyuGramDesktop](https://github.com/AyuGram/AyuGramDesktop)** — Ghost Mode engine, Anti-Recall & Edit History, Spy read/online timestamps, OneView media capture, WAL/Font/Upload Boost ergonomics, Streamer window flag, Regex filters, and customization settings.
+- **[Partisan Telegram](https://github.com/wrwrabbit/tdesktop)** & **[Vartagram](https://github.com/wrwrabbit/Vartagram)** — Duress PIN (`Decoy` / `Panic Wipe`) and `#PIN`-hidden chats architecture.
+- **[SereinGram](https://github.com/eltavine/SereinGram)** — Tracking URL parameter stripper, OBS/capture process Sentinel, Streamer masking, DeepLX & TranSmart translators, Pangu spacing, Chat Summary, Recent Chats (50), and To Saved (No Author).
+- **[GhostgramPC](https://github.com/ichmagmaus111/GhostgramPC)** — Scheduled ghost send, Read Until Here, Eternal Online, Forward Without Author, Anti-Caps, and Quoted Reply on Deleted Messages.
+- **[Regram](https://github.com/RegramDev/Regram)** — ICU regex ReDoS time and stack limits.
+- **[LuxuryGram](https://github.com/GofMan5/LuxuryGram)** — Force Relay Calls (`f_udp_p2p`), Outgoing Call Confirmation, rich-preview Repeat, and presence logging patterns.
+- **[Kotatogram](https://github.com/kotatogram/kotatogram-desktop)** — Local client-side folders (`Unread` / `Unmuted` / `Admin`) and text shorthand replacements (`:shrug:`).
+- **[Materialgram](https://github.com/kukuruzka165/materialgram)** — Period/batch 100-message deletion (`FLOOD_WAIT` aware), round video seekbar, and MD3 switch styling.
+- **[Forkgram](https://github.com/crazypeace/forkgram-tdesktop)** — `Delete for Everyone` default toggle and title-bar Always-on-Top pin control.
+- **[entinyGram](https://github.com/entaytion/entinyGram)** & **[Donutgram](https://github.com/kittenello/Donutgram)** — Presence logger, remembered last-seen caching, and `initConnection` device spoofing.
+- **[Novagram](https://github.com/confeden/Novagram)** & **[Nagram](https://github.com/NextAlone/Nagram)** — Outgoing image EXIF/XMP/IPTC stripping and Forced Copy/Save in restricted chats.
+- **[64Gram](https://github.com/TDesktop-x64/tdesktop)** / **[NFGram](https://github.com/frknkrc44/NFGram)** — Exact unrounded counters, Upload & Download Speed Boost, Prefer IPv6 option, and Birthday/Gifts/Channel debloat toggles.
+- **[decoder-dev/Telegram-iOS](https://github.com/decoder-dev/Telegram-iOS)** — 5-digit `777000` login code leak guard.
+- **[Telebrain](https://github.com/fedorn/telebrain)** — Local Ollama / OpenAI-compatible AI copilot concept (`SolarBrain`).
+
 ---
 
 ## Documentation Structure

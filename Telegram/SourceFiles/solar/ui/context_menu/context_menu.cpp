@@ -4,16 +4,20 @@
 
 #include "apiwrap.h"
 #include "lang_auto.h"
+#include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "api/api_sending.h"
 #include "solar/solar_settings.h"
 #include "solar/solar_state.h"
 #include "solar/data/messages_storage.h"
+#include "solar/data/solar_database.h"
+#include "solar/features/ai/solar_brain.h"
 #include "solar/features/filters/filters_controller.h"
 #include "solar/features/forward/solar_forward.h"
 #include "solar/features/forward/solar_forward_rich.h"
 #include "solar/ui/context_menu/menu_item_subtext.h"
 #include "solar/ui/message_history/history_section.h"
+#include "solar/ui/settings/settings_solar_utils.h"
 #include "solar/ui/settings/filters/edit_filter.h"
 #include "solar/ui/settings/filters/settings_filters_list.h"
 #include "solar/utils/qt_key_modifiers_extended.h"
@@ -25,10 +29,12 @@
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_forum_topic.h"
+#include "data/data_media_types.h"
 #include "data/data_search_controller.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
 #include "history/history.h"
+#include "history/history_item.h"
 #include "history/history_item_components.h"
 #include "history/view/history_view_context_menu.h"
 #include "history/view/history_view_element.h"
@@ -42,6 +48,15 @@
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
+#include "data/data_peer_values.h"
+#include "styles/style_boxes.h"
+#include "styles/style_widgets.h"
+#include "ui/layers/generic_box.h"
+#include "ui/toast/toast.h"
+#include "ui/widgets/labels.h"
+
+#include <QtCore/QDateTime>
+#include <QtCore/QStringList>
 
 namespace SolarUi {
 
@@ -74,13 +89,18 @@ Fn<void()> ClearDeletedMessagesHandler(not_null<Window::SessionController*> cont
 	};
 }
 
-void DeleteMyMessagesAfterConfirm(not_null<PeerData*> peer) {
+void DeleteMyMessagesAfterConfirm(
+		not_null<PeerData*> peer,
+		int maxCount = 0,
+		TimeId minDate = 0) {
 	const auto session = &peer->session();
 
-	if (const auto channel = peer->asChannel()) {
-		if (channel->isMegagroup() && channel->canDeleteMessages()) {
-			session->api().deleteAllFromParticipant(channel, session->user());
-			return;
+	if (!maxCount && !minDate) {
+		if (const auto channel = peer->asChannel()) {
+			if (channel->isMegagroup() && channel->canDeleteMessages()) {
+				session->api().deleteAllFromParticipant(channel, session->user());
+				return;
+			}
 		}
 	}
 
@@ -175,7 +195,7 @@ void DeleteMyMessagesAfterConfirm(not_null<PeerData*> peer) {
 			MTP_int(0),
 			// top_msg_id
 			MTP_inputMessagesFilterEmpty(),
-			MTP_int(0),
+			MTP_int(minDate),
 			// min_date
 			MTP_int(0),
 			// max_date
@@ -202,7 +222,10 @@ void DeleteMyMessagesAfterConfirm(not_null<PeerData*> peer) {
 					++batchCount;
 				}
 				DEBUG_LOG(("Batch found %1 my messages, total %2").arg(batchCount).arg(collected->size()));
-				if (parsed.messageIds.size() == 100 && minId) {
+				if (maxCount > 0 && int(collected->size()) >= maxCount) {
+					collected->resize(maxCount);
+					(*removeNext)(0);
+				} else if (parsed.messageIds.size() == 100 && minId) {
 					(*requestNext)(minId - MsgId(1));
 				} else {
 					DEBUG_LOG(("Found %1 my messages in this chat (SEARCH)").arg(collected->size()));
@@ -216,7 +239,11 @@ void DeleteMyMessagesAfterConfirm(not_null<PeerData*> peer) {
 	(*requestNext)(MsgId(0));
 }
 
-Fn<void()> DeleteMyMessagesHandler(not_null<Window::SessionController*> controller, not_null<PeerData*> peer) {
+Fn<void()> DeleteMyMessagesHandler(
+		not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer,
+		int maxCount = 0,
+		TimeId minDate = 0) {
 	return [=]
 	{
 		if (!controller->showFrozenError()) {
@@ -225,7 +252,7 @@ Fn<void()> DeleteMyMessagesHandler(not_null<Window::SessionController*> controll
 				.confirmed =
 				[=](Fn<void()> &&close)
 				{
-					DeleteMyMessagesAfterConfirm(peer);
+					DeleteMyMessagesAfterConfirm(peer, maxCount, minDate);
 					close();
 				},
 				.confirmText = tr::lng_box_delete(),
@@ -243,6 +270,57 @@ bool needToShowItem(ContextMenuVisibility state) {
 		|| (state == ContextMenuVisibility::VisibleWithModifier && base::IsExtendedContextMenuModifierPressed());
 }
 
+void ShowPresenceHistoryBox(
+		not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer) {
+	const auto userId = controller->session().userId().bare & PeerId::kChatTypeMask;
+	const auto dialogId = getDialogIdFromPeer(peer);
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		box->setTitle(tr::solar_PresenceHistoryTitle());
+		const auto logs = SolarDatabase::getSpyPresenceLogs(userId, dialogId, 200);
+		if (logs.empty()) {
+			box->addRow(object_ptr<Ui::FlatLabel>(
+				box,
+				tr::solar_PresenceHistoryEmpty(),
+				st::boxLabel));
+		} else {
+			const auto labelForType = [](int eventType) -> QString {
+				switch (eventType) {
+				case 0: return u"Online"_q;
+				case 1: return u"Offline"_q;
+				case 2: return u"Profile"_q;
+				case 3: return u"Phone"_q;
+				case 4: return u"Bio"_q;
+				case 5: return u"Last seen before hidden"_q;
+				default: return u"Event"_q;
+				}
+			};
+			QStringList lines;
+			lines.reserve(int(logs.size()));
+			for (const auto &entry : logs) {
+				const auto timeText = langDateTime(
+					QDateTime::fromSecsSinceEpoch(entry.timestamp));
+				const auto details = QString::fromStdString(entry.details);
+				lines.push_back(details.isEmpty()
+					? u"%1  [%2]"_q.arg(timeText, labelForType(entry.eventType))
+					: u"%1  [%2]  %3"_q.arg(
+						timeText,
+						labelForType(entry.eventType),
+						details));
+			}
+			const auto label = box->addRow(
+				object_ptr<Ui::FlatLabel>(box, lines.join(u"\n"_q), st::boxLabel),
+				st::boxRowPadding);
+			label->setSelectable(true);
+			box->addLeftButton(tr::solar_PresenceClearAction(), [=] {
+				SolarDatabase::clearSpyPresenceLogs(userId, dialogId);
+				box->closeBox();
+			});
+		}
+		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+	}));
+}
+
 void AddSolarGramActions(PeerData *peerData,
 							   Data::Thread *thread,
 							   not_null<Window::SessionController*> sessionController,
@@ -256,12 +334,10 @@ void AddSolarGramActions(PeerData *peerData,
 	const auto showFilters = settings.filtersEnabled()
 		&& (!user || user->isBot());
 	const auto saveDeletedMessages = settings.saveDeletedMessages();
-	if (!showFilters && !saveDeletedMessages) {
-		return;
-	}
 
 	const auto topic = peerData->isForum() && thread ? thread->asTopic() : nullptr;
 	const auto topicId = topic ? topic->rootId().bare : 0;
+	const auto dialogId = getDialogIdFromPeer(peerData);
 
 	addCallback(Window::PeerMenuCallback::Args{
 		.text = u"SolarGram"_q,
@@ -269,12 +345,14 @@ void AddSolarGramActions(PeerData *peerData,
 		.icon = &st::menuIconGroupReactions,
 		.fillSubmenu = [=](not_null<Ui::PopupMenu*> menu) {
 			const auto addAction = Ui::Menu::CreateAddActionCallback(menu);
+			auto addedPrimary = false;
 			if (showFilters) {
+				addedPrimary = true;
 				addAction(
 					tr::solar_ViewFiltersMenuText(tr::now),
 					[=]
 					{
-						sessionController->dialogId = getDialogIdFromPeer(peerData);
+						sessionController->dialogId = dialogId;
 						sessionController->showExclude = true;
 						sessionController->shadowBan = false;
 						sessionController->showSettings(Settings::SolarFiltersList::Id());
@@ -283,6 +361,7 @@ void AddSolarGramActions(PeerData *peerData,
 			}
 			const auto filteredToggleShown = FiltersController::filteredMessagesShown(peerData);
 			if (filteredToggleShown) {
+				addedPrimary = true;
 				addAction(
 					*filteredToggleShown
 						? tr::solar_HideFilteredMessagesMenuText(tr::now)
@@ -296,6 +375,7 @@ void AddSolarGramActions(PeerData *peerData,
 						: &st::menuIconCaptionShow);
 			}
 			if (saveDeletedMessages) {
+				addedPrimary = true;
 				addAction(
 					tr::solar_ViewDeletedMenuText(tr::now),
 					[=]
@@ -308,12 +388,270 @@ void AddSolarGramActions(PeerData *peerData,
 						}
 					},
 					&st::menuIconArchive);
-				if (showFilters || filteredToggleShown.value_or(false)) addAction({ .isSeparator = true });
 				addAction({
 					.text = tr::solar_ClearDeletedMenuText(tr::now),
 					.handler = ClearDeletedMessagesHandler(sessionController, peerData, topicId),
 					.icon = &st::menuIconClearAttention,
 					.isAttention = true,
+				});
+			}
+
+			if (addedPrimary) {
+				addAction({ .isSeparator = true });
+			}
+
+			// Exclusions (Per-Chat Saving / Read / Typing)
+			{
+				const auto excluded = SolarSettings::getInstance().isSavingExcluded(dialogId);
+				addAction(
+					excluded
+						? (u"\u2713 "_q + tr::solar_SavingExclusions(tr::now))
+						: tr::solar_SavingExclusions(tr::now),
+					[=] {
+						SolarSettings::getInstance().setSavingExcluded(dialogId, !excluded);
+					},
+					excluded ? &st::menuIconBlock : &st::menuIconArchive);
+
+				const auto addExclusionModeMenu = [=](
+						const QString &label,
+						ChatExclusionMode current,
+						Fn<void(ChatExclusionMode)> setter,
+						const style::icon *icon) {
+					addAction({
+						.text = label,
+						.icon = icon,
+						.fillSubmenu = [=](not_null<Ui::PopupMenu*> sub) {
+							const auto addSub = Ui::Menu::CreateAddActionCallback(sub);
+							const auto addMode = [&](ChatExclusionMode mode, QString text) {
+								addSub(
+									(current == mode) ? (u"\u2713 "_q + text) : std::move(text),
+									[=] { setter(mode); },
+									nullptr);
+							};
+							addMode(ChatExclusionMode::GlobalDefault, tr::solar_ExclusionFollowGlobal(tr::now));
+							addMode(ChatExclusionMode::ForceAllow, tr::solar_ExclusionForceAllow(tr::now));
+							addMode(ChatExclusionMode::ForceBlock, tr::solar_ExclusionForceBlock(tr::now));
+						},
+					});
+				};
+				addExclusionModeMenu(
+					tr::solar_ReadExclusion(tr::now),
+					SolarSettings::getInstance().readExclusion(dialogId),
+					[=](ChatExclusionMode m) { SolarSettings::getInstance().setReadExclusion(dialogId, m); },
+					&st::menuIconShowInChat);
+				addExclusionModeMenu(
+					tr::solar_TypingExclusion(tr::now),
+					SolarSettings::getInstance().typingExclusion(dialogId),
+					[=](ChatExclusionMode m) { SolarSettings::getInstance().setTypingExclusion(dialogId, m); },
+					&st::menuIconEdit);
+
+				// Per-Chat Ghost Mode 5/5 (Read Stories, Online Packets, Auto-Offline + Read/Typing).
+				addAction({
+					.text = tr::solar_PerChatGhostMenu(tr::now),
+					.icon = &st::menuIconStealth,
+					.fillSubmenu = [=](not_null<Ui::PopupMenu*> sub) {
+						const auto addSub = Ui::Menu::CreateAddActionCallback(sub);
+						const auto nextMode = [](ChatExclusionMode m) {
+							switch (m) {
+							case ChatExclusionMode::GlobalDefault: return ChatExclusionMode::ForceAllow;
+							case ChatExclusionMode::ForceAllow: return ChatExclusionMode::ForceBlock;
+							case ChatExclusionMode::ForceBlock: return ChatExclusionMode::GlobalDefault;
+							}
+							return ChatExclusionMode::GlobalDefault;
+						};
+						const auto modeSuffix = [](ChatExclusionMode m) -> QString {
+							switch (m) {
+							case ChatExclusionMode::GlobalDefault: return u" [·]"_q;
+							case ChatExclusionMode::ForceAllow: return u" [✓]"_q;
+							case ChatExclusionMode::ForceBlock: return u" [✕]"_q;
+							}
+							return {};
+						};
+						auto policy = SolarSettings::getInstance().perChatGhostPolicy(dialogId);
+						addSub(
+							tr::solar_GhostReadMessages(tr::now)
+								+ modeSuffix(SolarSettings::getInstance().readExclusion(dialogId)),
+							[=] {
+								auto &s = SolarSettings::getInstance();
+								s.setReadExclusion(dialogId, nextMode(s.readExclusion(dialogId)));
+							},
+							&st::menuIconShowInChat);
+						addSub(
+							tr::solar_GhostReadStories(tr::now) + modeSuffix(policy.readStories),
+							[=] {
+								auto &s = SolarSettings::getInstance();
+								auto p = s.perChatGhostPolicy(dialogId);
+								p.readStories = nextMode(p.readStories);
+								s.setPerChatGhostPolicy(dialogId, p);
+							},
+							&st::menuIconShowAll);
+						addSub(
+							tr::solar_GhostSendTyping(tr::now)
+								+ modeSuffix(SolarSettings::getInstance().typingExclusion(dialogId)),
+							[=] {
+								auto &s = SolarSettings::getInstance();
+								s.setTypingExclusion(dialogId, nextMode(s.typingExclusion(dialogId)));
+							},
+							&st::menuIconEdit);
+						addSub(
+							tr::solar_GhostSendOnline(tr::now) + modeSuffix(policy.onlinePackets),
+							[=] {
+								auto &s = SolarSettings::getInstance();
+								auto p = s.perChatGhostPolicy(dialogId);
+								p.onlinePackets = nextMode(p.onlinePackets);
+								s.setPerChatGhostPolicy(dialogId, p);
+							},
+							&st::menuIconUnmute);
+						addSub(
+							tr::solar_GhostOfflineAfterOnline(tr::now)
+								+ modeSuffix(policy.offlineAfterOnline),
+							[=] {
+								auto &s = SolarSettings::getInstance();
+								auto p = s.perChatGhostPolicy(dialogId);
+								p.offlineAfterOnline = nextMode(p.offlineAfterOnline);
+								s.setPerChatGhostPolicy(dialogId, p);
+							},
+							&st::menuIconTTL);
+					},
+				});
+			}
+
+			// Hidden Chats (#PIN)
+			if (!user || !user->isSelf()) {
+				const auto isHidden = SolarSettings::getInstance().isChatHidden(dialogId);
+				addAction(
+					isHidden
+						? tr::solar_UnhideChatAction(tr::now)
+						: tr::solar_HideChatAction(tr::now),
+					[=] {
+						auto &s = SolarSettings::getInstance();
+						if (isHidden) {
+							s.unhideChat(dialogId);
+						} else if (s.hasHiddenChatsPin()) {
+							s.hideChat(dialogId);
+						} else {
+							Settings::ShowSolarPinBox(
+								sessionController,
+								tr::solar_HiddenChatsTitle(),
+								tr::solar_DuressPinPlaceholder(),
+								tr::solar_HiddenChatsAbout(),
+								false,
+								[=](const QString &pin) {
+									auto &inst = SolarSettings::getInstance();
+									inst.setHiddenChatsPin(pin);
+									inst.hideChat(dialogId);
+								});
+						}
+					},
+					isHidden ? &st::menuIconUserShow : &st::menuIconUserHide);
+			}
+
+			// Peek Last Seen & Presence History (private users)
+			if (user && !user->isBot() && !user->isSelf()) {
+				addAction({ .isSeparator = true });
+				addAction(
+					tr::solar_PeekOnline(tr::now),
+					[=] {
+						const auto weak = base::make_weak(sessionController);
+						user->session().api().request(MTPusers_GetFullUser(
+							user->inputUser()
+						)).done([=](const MTPusers_UserFull &result) {
+							user->owner().processUsers(result.data().vusers());
+							if (const auto s = weak.get()) {
+								s->showToast(Data::OnlineTextFull(
+									user,
+									base::unixtime::now()));
+							}
+						}).fail([=] {
+							if (const auto s = weak.get()) {
+								s->showToast(Data::OnlineTextFull(
+									user,
+									base::unixtime::now()));
+							}
+						}).send();
+					},
+					&st::menuIconSearch);
+				addAction(
+					tr::solar_PresenceHistoryAction(tr::now),
+					[=] {
+						ShowPresenceHistoryBox(sessionController, peerData);
+					},
+					&st::menuIconInfo);
+				const auto isWatched = SolarSettings::getInstance().isPeerWatched(dialogId);
+				addAction(
+					isWatched
+						? tr::solar_UnwatchOnlineAction(tr::now)
+						: tr::solar_WatchOnlineAction(tr::now),
+					[=] {
+						SolarSettings::getInstance().setPeerWatched(dialogId, !isWatched);
+					},
+					isWatched ? &st::menuIconMute : &st::menuIconUnmute);
+			}
+
+			// Summarize Chat (Last 50 messages via SolarBrain, SereinGram RecentLines pattern)
+			if (SolarSettings::getInstance().solarBrainEnabled()) {
+				addAction(
+					tr::solar_SummarizeChatAction(tr::now),
+					crl::guard(sessionController, [=] {
+						const auto history = peerData->owner().history(peerData);
+						QStringList lines;
+						constexpr auto kSummaryLimit = 50;
+						for (auto i = history->blocks.rbegin();
+								i != history->blocks.rend() && lines.size() < kSummaryLimit;
+								++i) {
+							const auto &messages = (*i)->messages;
+							for (auto j = messages.rbegin();
+									j != messages.rend() && lines.size() < kSummaryLimit;
+									++j) {
+								const auto msg = (*j)->data();
+								const auto text = msg->originalText().text.trimmed();
+								if (!msg->isService() && !text.isEmpty()) {
+									lines.push_back(u"%1: %2"_q.arg(msg->from()->name(), text));
+								}
+							}
+						}
+						if (lines.isEmpty()) {
+							sessionController->showToast(tr::solar_SummaryEmpty(tr::now));
+							return;
+						}
+						std::reverse(lines.begin(), lines.end());
+						SolarFeatures::AI::ShowSolarBrainBox(
+							sessionController,
+							lines.join(u"\n"_q));
+					}),
+					&st::menuIconStats);
+			}
+
+			// Bulk Delete by Period (private chats, groups, megagroups)
+			if ((user && !user->isSelf())
+				|| peerData->isChat()
+				|| peerData->isMegagroup()) {
+				addAction({
+					.text = tr::solar_BulkDeleteByPeriod(tr::now),
+					.icon = &st::menuIconDelete,
+					.fillSubmenu = [=](not_null<Ui::PopupMenu*> sub) {
+						const auto addSub = Ui::Menu::CreateAddActionCallback(sub);
+						addSub(
+							tr::solar_BulkDeleteLast100(tr::now),
+							DeleteMyMessagesHandler(sessionController, peerData, 100, 0),
+							&st::menuIconDelete);
+						addSub(
+							tr::solar_BulkDeleteLast24h(tr::now),
+							DeleteMyMessagesHandler(
+								sessionController,
+								peerData,
+								0,
+								base::unixtime::now() - 86400),
+							&st::menuIconTTL);
+						addSub(
+							tr::solar_BulkDeleteLast7d(tr::now),
+							DeleteMyMessagesHandler(
+								sessionController,
+								peerData,
+								0,
+								base::unixtime::now() - 7 * 86400),
+							&st::menuIconTTL);
+					},
 				});
 			}
 		},
@@ -693,6 +1031,27 @@ void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 				));
 			}
 
+			if (item->out()) {
+				const ID uid = item->history()->owner().session().userId().bare & PeerId::kChatTypeMask;
+				const ID did = getDialogIdFromPeer(item->history()->peer);
+				if (const auto readTs = SolarDatabase::getSpyMessageReadDate(uid, did, item->id.bare); readTs > 0) {
+					menu2->addAction(Ui::ContextActionWithSubText(
+						menu2->menu(),
+						st::menuIconShowInChat,
+						tr::solar_ReadDate(tr::now),
+						formatDateTime(base::unixtime::parse(readTs))
+					));
+				}
+				if (const auto contentsTs = SolarDatabase::getSpyMessageContentsReadDate(uid, did, item->id.bare); contentsTs > 0) {
+					menu2->addAction(Ui::ContextActionWithSubText(
+						menu2->menu(),
+						st::menuIconTTL,
+						tr::solar_ContentsReadDate(tr::now),
+						formatDateTime(base::unixtime::parse(contentsTs))
+					));
+				}
+			}
+
 			if (media && hasAnyMediaField) {
 				menu2->addSeparator();
 
@@ -996,6 +1355,92 @@ void AddCreateFilterAction(not_null<Ui::PopupMenu*> menu,
 			controller->show(Settings::RegexEditBox(&filter, {}, getDialogIdFromPeer(item->history()->peer), true));
 		},
 		&st::menuIconAddToFolder);
+}
+
+void AddDeletedQuoteAction(
+		not_null<Ui::PopupMenu*> menu,
+		HistoryItem *item,
+		Fn<void(QString)> insertText) {
+	if (!item || !item->isDeleted() || !insertText) {
+		return;
+	}
+	const auto authorName = item->from()->name();
+	auto deletedText = item->originalText().text.trimmed();
+	if (deletedText.isEmpty()) {
+		if (const auto media = item->media()) {
+			auto label = media->notificationText().text;
+			if (const auto document = media->document()) {
+				if (!document->isVoiceMessage()
+					&& !document->isVideoMessage()
+					&& !document->isAnimation()
+					&& !document->isVideoFile()
+					&& !document->isSong()
+					&& !document->sticker()
+					&& !document->isImage()) {
+					const auto name = document->filename();
+					if (!name.isEmpty()) {
+						label = name;
+					}
+				}
+			}
+			if (!label.isEmpty()) {
+				deletedText = u"[%1]"_q.arg(label);
+			}
+		}
+	}
+	if (deletedText.isEmpty() && authorName.isEmpty()) {
+		return;
+	}
+	const auto quote = authorName.isEmpty()
+		? (deletedText + u"\n"_q)
+		: u"%1: «%2»\n"_q.arg(authorName, deletedText);
+	menu->addAction(
+		tr::solar_QuoteDeletedAction(tr::now),
+		[insertText = std::move(insertText), quote] {
+			insertText(quote);
+		},
+		&st::menuIconReply);
+}
+
+void AddForwardToSavedCleanAction(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<Window::SessionController*> controller,
+		const MessageIdsList &ids,
+		Fn<void()> onDone) {
+	if (ids.empty()) {
+		return;
+	}
+	menu->addAction(
+		tr::solar_ToSavedClean(tr::now),
+		crl::guard(controller, [=, onDone = std::move(onDone)] {
+			Window::ForwardToSelf(
+				controller->uiShow(),
+				Data::ForwardDraft{
+					.ids = ids,
+					.options = Data::ForwardOptions::NoSenderNames,
+				});
+			if (onDone) {
+				onDone();
+			}
+		}),
+		&st::menuIconSavedMessages);
+}
+
+void AddForwardToSavedCleanAction(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<Window::SessionController*> controller,
+		const std::vector<not_null<HistoryItem*>> &items,
+		Fn<void()> onDone) {
+	MessageIdsList ids;
+	ids.reserve(items.size());
+	for (const auto &it : items) {
+		ids.push_back(it->fullId());
+	}
+	AddForwardToSavedCleanAction(
+		menu,
+		controller,
+		ids,
+		std::move(onDone));
 }
 
 } // namespace SolarUi

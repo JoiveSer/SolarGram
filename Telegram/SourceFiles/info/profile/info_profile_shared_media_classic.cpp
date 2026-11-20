@@ -349,7 +349,9 @@ object_ptr<Ui::SlideWrap<Ui::RpWidget>> SetupSharedMediaClassic(
 
 	if (!topic) {
 		addStoriesButton(peer, st::infoIconMediaStories);
-		addPeerGiftsButton(peer, st::infoIconMediaGifts);
+		if (!SolarSettings::getInstance().hideGiftsUi()) {
+			addPeerGiftsButton(peer, st::infoIconMediaGifts);
+		}
 		addSavedSublistButton(peer, st::infoIconMediaSaved);
 	}
 	addMediaButton(MediaType::Photo, st::infoIconMediaPhoto);

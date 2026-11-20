@@ -47,6 +47,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QImageWriter>
 
 // SolarGram includes
+#include "solar/solar_settings.h"
 #include "solar/utils/telegram_helpers.h"
 
 
@@ -1141,7 +1142,7 @@ void FileLoadTask::process(ProcessArgs &&args) {
 				const auto limit = PhotoSideLimit(_sendLargePhotos);
 				const auto downscaled = (w > limit || h > limit);
 				auto full = downscaled ? fullimage.scaled(limit, limit, Qt::KeepAspectRatio, Qt::SmoothTransformation) : fullimage;
-				if (downscaled) {
+				if (downscaled || SolarSettings::getInstance().stripImageExif()) {
 					fullimagebytes = fullimageformat = QByteArray();
 				}
 				filedata = ComputePhotoJpegBytes(full, fullimagebytes, fullimageformat);

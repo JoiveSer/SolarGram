@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "data/data_forum_topic.h"
 #include "data/data_session.h"
+#include "solar/solar_settings.h"
 #include "data/data_premium_limits.h"
 #include "boxes/peers/edit_peer_permissions_box.h"
 #include "base/unixtime.h"
@@ -125,12 +126,19 @@ rpl::producer<int32> ColorIdValue(not_null<Data::ForumTopic*> topic) {
 }
 
 rpl::producer<TextWithEntities> PhoneValue(not_null<UserData*> user) {
-	return rpl::merge(
-		Countries::Instance().updated(),
-		user->session().changes().peerFlagsValue(
-			user,
-			UpdateFlag::PhoneNumber) | rpl::to_empty
-	) | rpl::map([=] {
+	return rpl::combine(
+		rpl::merge(
+			Countries::Instance().updated(),
+			user->session().changes().peerFlagsValue(
+				user,
+				UpdateFlag::PhoneNumber) | rpl::to_empty
+		),
+		SolarSettings::getInstance().streamerModeValue(),
+		SolarSettings::getInstance().streamerMaskPrivacyValue()
+	) | rpl::map([=](auto, bool streamer, bool mask) {
+		if (streamer && mask && !user->phone().isEmpty()) {
+			return tr::marked(u"+\u2022\u2022\u2022 \u2022\u2022\u2022 \u2022\u2022\u2022\u2022"_q);
+		}
 		return tr::marked(Ui::FormatPhone(user->phone()));
 	});
 }
@@ -183,13 +191,20 @@ void CopyPhoneToClipboard(rpl::producer<TextWithEntities> phone) {
 rpl::producer<TextWithEntities> UsernameValue(
 		not_null<PeerData*> peer,
 		bool primary) {
-	return (primary
-		? PlainPrimaryUsernameValue(peer)
-		: (PlainUsernameValue(peer) | rpl::type_erased)
-	) | rpl::map([](QString &&username) {
-		return username.isEmpty()
-			? tr::marked()
-			: tr::marked('@' + username);
+	return rpl::combine(
+		primary
+			? PlainPrimaryUsernameValue(peer)
+			: (PlainUsernameValue(peer) | rpl::type_erased),
+		SolarSettings::getInstance().streamerModeValue(),
+		SolarSettings::getInstance().streamerMaskPrivacyValue()
+	) | rpl::map([peer](QString &&username, bool streamer, bool mask) {
+		if (username.isEmpty()) {
+			return tr::marked();
+		}
+		if (streamer && mask && peer->isSelf()) {
+			return tr::marked(u"@\u2022\u2022\u2022\u2022\u2022\u2022"_q);
+		}
+		return tr::marked('@' + username);
 	});
 }
 

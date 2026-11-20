@@ -53,6 +53,9 @@ std::vector<char> serializeObject(MTPObject object) {
 
 template<typename MTPObject>
 MTPObject deserializeObject(std::vector<char> serialized) {
+	if (serialized.empty()) {
+		return MTPObject();
+	}
 	gsl::span<char> span(serialized.data(), serialized.size());
 
 	auto from = reinterpret_cast<const mtpPrime*>(span.data());
@@ -87,6 +90,14 @@ std::pair<std::string, std::vector<char>> serializeTextWithEntities(not_null<His
 
 MTPVector<MTPMessageEntity> deserializeTextWithEntities(std::vector<char> serialized) {
 	return deserializeObject<MTPVector<MTPMessageEntity>>(serialized);
+}
+
+std::vector<char> serializeDocumentAttributes(const MTPVector<MTPDocumentAttribute> &attributes) {
+	return serializeObject(attributes);
+}
+
+MTPVector<MTPDocumentAttribute> deserializeDocumentAttributes(std::vector<char> serialized) {
+	return deserializeObject<MTPVector<MTPDocumentAttribute>>(std::move(serialized));
 }
 
 int mapItemFlagsToMTPFlags(not_null<HistoryItem*> item) {

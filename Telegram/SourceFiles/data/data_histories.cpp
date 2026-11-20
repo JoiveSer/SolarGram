@@ -181,6 +181,12 @@ void Histories::clearAll() {
 	_map.clear();
 }
 
+void Histories::refreshChatListExistence() {
+	for (const auto &[peerId, history] : _map) {
+		history->updateChatListExistence();
+	}
+}
+
 void Histories::readInbox(not_null<History*> history) {
 	DEBUG_LOG(("Reading: readInbox called."));
 	if (history->lastServerMessageKnown()) {
@@ -697,30 +703,23 @@ void Histories::reportPendingDeliveries() {
 void Histories::sendReadRequests() {
 	DEBUG_LOG(("Reading: send requests with count %1.").arg(_states.size()));
 
-	// SolarGram sendReadMessages
-	const auto &ghost = SolarSettings::ghost(&_owner->session());
-	if (!ghost.sendReadMessages()) {
-		DEBUG_LOG(("[SolarGram] Don't read messages"));
-		_readRequestsTimer.cancel();
-		auto histories = std::vector<not_null<History*>>();
-		histories.reserve(_states.size());
-		for (auto &[history, state] : _states) {
-			state.willReadTill = 0;
-			state.willReadWhen = 0;
-			histories.push_back(history);
-		}
-		for (const auto history : histories) {
-			checkEmptyState(history);
-		}
-		return;
-	}
-
 	if (_states.empty()) {
 		return;
 	}
+	const auto &solar = SolarSettings::getInstance();
 	const auto now = crl::now();
 	auto next = std::optional<crl::time>();
+	auto skipped = std::vector<not_null<History*>>();
 	for (auto &[history, state] : _states) {
+		if (!solar.effectiveShouldRead(
+				&_owner->session(),
+				getDialogIdFromPeer(history->peer))) {
+			DEBUG_LOG(("[SolarGram] Don't read messages in dialog"));
+			state.willReadTill = 0;
+			state.willReadWhen = 0;
+			skipped.push_back(history);
+			continue;
+		}
 		if (!state.willReadTill) {
 			DEBUG_LOG(("Reading: skipping zero till."));
 			continue;
@@ -732,6 +731,9 @@ void Histories::sendReadRequests() {
 			DEBUG_LOG(("Reading: scheduling for later send."));
 			next = state.willReadWhen;
 		}
+	}
+	for (const auto history : skipped) {
+		checkEmptyState(history);
 	}
 	if (next.has_value()) {
 		_readRequestsTimer.callOnce(*next - now);

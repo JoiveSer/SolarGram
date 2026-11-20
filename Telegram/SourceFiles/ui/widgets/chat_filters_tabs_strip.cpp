@@ -85,10 +85,12 @@ void ShowMenu(
 		state->menu.get());
 
 	if (id) {
-		addAction(
-			tr::lng_filters_context_edit(tr::now),
-			[=] { EditExistingFilter(controller, id); },
-			&st::menuIconEdit);
+		if (!Data::IsLocalFilterId(id)) {
+			addAction(
+				tr::lng_filters_context_edit(tr::now),
+				[=] { EditExistingFilter(controller, id); },
+				&st::menuIconEdit);
+		}
 
 		MarkAsReadMenu::AddChatListAction(
 			controller,
@@ -96,15 +98,17 @@ void ShowMenu(
 			[=] { return session->data().chatsFilters().chatsList(id); },
 			addAction);
 
-		auto showRemoveBox = [=] {
-			state->removeApi.request(base::make_weak(parent), controller, id);
-		};
-		addAction({
-			.text = tr::lng_filters_context_remove(tr::now),
-			.handler = std::move(showRemoveBox),
-			.icon = &st::menuIconDeleteAttention,
-			.isAttention = true,
-		});
+		if (!Data::IsLocalFilterId(id)) {
+			auto showRemoveBox = [=] {
+				state->removeApi.request(base::make_weak(parent), controller, id);
+			};
+			addAction({
+				.text = tr::lng_filters_context_remove(tr::now),
+				.handler = std::move(showRemoveBox),
+				.icon = &st::menuIconDeleteAttention,
+				.isAttention = true,
+			});
+		}
 	} else {
 		MarkAsReadMenu::AddChatListAction(
 			controller,
@@ -177,7 +181,8 @@ void ShowFiltersListMenu(
 			action,
 			icon,
 			icon);
-		action->setEnabled(i < premiumFrom);
+		action->setEnabled(
+			(i < premiumFrom) || Data::IsLocalFilterId(list[i].id()));
 		if (!title.text.empty()) {
 			const auto context = Core::TextContext({
 				.session = session,
@@ -424,7 +429,12 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 			const auto maxLimit = (reorderAll ? 1 : 0)
 				+ Data::PremiumLimits(session).dialogFiltersCurrent();
 			const auto premiumFrom = (reorderAll ? 0 : 1) + maxLimit;
-			slider->setLockedFrom((premiumFrom >= list.size())
+			auto serverEnd = 0;
+			while (serverEnd < int(list.size())
+				&& !Data::IsLocalFilterId(list[serverEnd].id())) {
+				++serverEnd;
+			}
+			slider->setLockedFrom((premiumFrom >= serverEnd)
 				? 0
 				: premiumFrom);
 			slider->lockedClicked() | rpl::on_next([=] {
@@ -436,9 +446,16 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 				if (!reorderAll) {
 					state->reorder->addPinnedInterval(0, 1);
 				}
-				state->reorder->addPinnedInterval(
-					premiumFrom,
-					std::max(1, int(list.size()) - maxLimit));
+				if (premiumFrom < serverEnd) {
+					state->reorder->addPinnedInterval(
+						premiumFrom,
+						serverEnd - premiumFrom);
+				}
+				if (serverEnd < int(list.size())) {
+					state->reorder->addPinnedInterval(
+						serverEnd,
+						int(list.size()) - serverEnd);
+				}
 			}
 		}
 		if (trackActiveFilterAndUnreadAndReorder) {

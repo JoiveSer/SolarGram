@@ -1455,7 +1455,6 @@ void ApiWrap::migrateFail(not_null<PeerData*> peer, const QString &error) {
 void ApiWrap::markContentsRead(
 		const base::flat_set<not_null<HistoryItem*>> &items) {
 	const auto &settings = SolarSettings::getInstance();
-	const auto &ghost = SolarSettings::ghost(&session());
 
 	auto markedIds = QVector<MTPint>();
 	auto channelMarkedIds = base::flat_map<
@@ -1464,7 +1463,7 @@ void ApiWrap::markContentsRead(
 	markedIds.reserve(items.size());
 	for (const auto &item : items) {
 		const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction()) && !item->isUnreadMedia();
-		const auto keepUnread = settings.saveDeletedMessages()
+		const auto keepUnread = (settings.keepOneViewMedia() || settings.saveDeletedMessages())
 			&& item->isIncomingUnreadMedia()
 			&& item->media()->ttlSeconds();
 
@@ -1473,7 +1472,10 @@ void ApiWrap::markContentsRead(
 			continue;
 		}
 
-		if (!ghost.sendReadMessages() && !passthrough) {
+		if (!settings.effectiveShouldRead(
+				&session(),
+				getDialogIdFromPeer(item->history()->peer))
+			&& !passthrough) {
 			continue;
 		}
 
@@ -1500,7 +1502,8 @@ void ApiWrap::markContentsRead(
 
 void ApiWrap::markContentsRead(not_null<HistoryItem*> item) {
 	const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction()) && !item->isUnreadMedia();
-	const auto keepUnread = SolarSettings::getInstance().saveDeletedMessages()
+	const auto &settings = SolarSettings::getInstance();
+	const auto keepUnread = (settings.keepOneViewMedia() || settings.saveDeletedMessages())
 		&& item->isIncomingUnreadMedia()
 		&& item->media()->ttlSeconds();
 
@@ -1509,8 +1512,10 @@ void ApiWrap::markContentsRead(not_null<HistoryItem*> item) {
 		return;
 	}
 
-	const auto &ghost = SolarSettings::ghost(&session());
-	if (!ghost.sendReadMessages() && !passthrough) {
+	if (!SolarSettings::getInstance().effectiveShouldRead(
+			&session(),
+			getDialogIdFromPeer(item->history()->peer))
+		&& !passthrough) {
 		return;
 	}
 

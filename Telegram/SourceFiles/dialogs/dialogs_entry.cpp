@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "solar/solar_settings.h"
 #include "styles/style_dialogs.h" // st::dialogsTextWidthMin
 
 namespace Dialogs {
@@ -252,6 +253,10 @@ uint64 Entry::computeSortPosition(FilterId filterId) const {
 
 bool Entry::hasUnreadUnmutedForSort() const {
 	const auto state = chatListUnreadState();
+	if (SolarSettings::getInstance().unreadChatsFirst()
+		&& (state.messages || state.marks || state.mentions)) {
+		return true;
+	}
 	return (state.messages > state.messagesMuted)
 		|| (state.marks > state.marksMuted)
 		|| (state.reactions > state.reactionsMuted)

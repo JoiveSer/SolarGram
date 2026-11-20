@@ -43,6 +43,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
+#include "styles/style_layers.h"
+
+// SolarGram includes
+#include "solar/solar_settings.h"
 
 #include <QtCore/QDataStream>
 #include <QtGui/QGuiApplication>
@@ -391,8 +395,15 @@ void ActivateBotButton(ClickHandlerContext context, BotButtonLookup lookup) {
 		const auto itemId = item->fullId();
 		const auto topicRootId = item->topicRootId();
 		const auto history = item->history();
+		const auto warnPhishing = SolarSettings::getInstance().phishingGuard()
+			&& !history->peer->isVerified();
 		controller->show(Ui::MakeConfirmBox({
-			.text = tr::lng_bot_share_phone(),
+			.text = warnPhishing
+				? tr::solar_PhishingPhoneWarning(
+					tr::now,
+					lt_name,
+					history->peer->name())
+				: tr::lng_bot_share_phone(tr::now),
 			.confirmed = [=] {
 				controller->showPeerHistory(
 					history,
@@ -409,6 +420,7 @@ void ActivateBotButton(ClickHandlerContext context, BotButtonLookup lookup) {
 					action);
 			},
 			.confirmText = tr::lng_bot_share_phone_confirm(),
+			.confirmStyle = warnPhishing ? &st::attentionBoxButton : nullptr,
 		}));
 	} break;
 

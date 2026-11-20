@@ -63,6 +63,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_account.h"
 #include "mainwidget.h"
 #include "main/main_account.h"
+#include "solar/solar_settings.h"
 #include "main/main_app_config.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
@@ -1227,6 +1228,9 @@ bool CopyUsername(
 		const QVariant &context) {
 	if (!controller) {
 		return false;
+	}
+	if (SolarSettings::getInstance().copyUsernameAsLink()) {
+		return CopyUsernameLink(controller, match, context);
 	}
 	const auto username = match->captured(1);
 	TextUtilities::SetClipboardText({ '@' + username });

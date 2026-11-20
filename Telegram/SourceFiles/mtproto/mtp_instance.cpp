@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/timer.h"
 #include "base/network_reachability.h"
 #include "test/test_rpc_retry.h"
+#include "solar/solar_settings.h"
 
 namespace MTP {
 namespace {
@@ -903,6 +904,10 @@ bool Instance::Private::isTestMode() const {
 }
 
 QString Instance::Private::deviceModel() const {
+	const auto spoof = SolarSettings::getInstance().deviceSpoofSnapshot();
+	if (spoof.enabled && !spoof.model.isEmpty()) {
+		return spoof.model;
+	}
 	QMutexLocker lock(&_deviceModelMutex);
 	return _customDeviceModel.isEmpty()
 		? _deviceModelDefault
@@ -910,6 +915,10 @@ QString Instance::Private::deviceModel() const {
 }
 
 QString Instance::Private::systemVersion() const {
+	const auto spoof = SolarSettings::getInstance().deviceSpoofSnapshot();
+	if (spoof.enabled && !spoof.system.isEmpty()) {
+		return spoof.system;
+	}
 	return _systemVersion;
 }
 

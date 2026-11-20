@@ -17,8 +17,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_folder.h"
 #include "data/data_histories.h"
 #include "dialogs/dialogs_main_list.h"
-#include "history/history.h"
 #include "history/history_unread_things.h"
+#include "lang/lang_keys.h"
+
+#include <algorithm>
 #include "ui/ui_utility.h"
 #include "ui/chat/more_chats_bar.h"
 #include "main/main_session.h"
@@ -343,6 +345,23 @@ const base::flat_set<not_null<History*>> &ChatFilter::never() const {
 bool ChatFilter::contains(
 		not_null<History*> history,
 		bool ignoreFakeUnread) const {
+	if (_id == kLocalFilterAdmin) {
+		if (_never.contains(history)) {
+			return false;
+		}
+		if ((_flags & Flag::NoArchived)
+			&& history->folderKnown()
+			&& history->folder()) {
+			return false;
+		}
+		const auto peer = history->peer;
+		if (const auto chat = peer->asChat()) {
+			return chat->amCreator() || chat->hasAdminRights();
+		} else if (const auto channel = peer->asChannel()) {
+			return channel->amCreator() || channel->hasAdminRights();
+		}
+		return false;
+	}
 	const auto flag = [&] {
 		const auto peer = history->peer;
 		if (const auto user = peer->asUser()) {
@@ -418,6 +437,102 @@ ChatFilters::ChatFilters(not_null<Session*> owner)
 			}
 		}
 	}, _lifetime);
+
+	SolarSettings::getInstance().localFoldersEnabledChanges()
+	| rpl::on_next([=](bool) {
+		if (_loaded) {
+			syncLocalFolders();
+		}
+	}, _lifetime);
+}
+
+void ChatFilters::syncLocalFolders() {
+	using Flag = ChatFilter::Flag;
+	const auto enabled = SolarSettings::getInstance().localFoldersEnabled();
+	auto changed = false;
+	if (!enabled) {
+		for (auto i = int(_list.size()) - 1; i >= 0; --i) {
+			if (IsLocalFilterId(_list[i].id())) {
+				applyRemove(i);
+				changed = true;
+			}
+		}
+		if (changed) {
+			_listChanged.fire({});
+		}
+		return;
+	}
+	const auto allTypes = Flag::Contacts
+		| Flag::NonContacts
+		| Flag::Groups
+		| Flag::Channels
+		| Flag::Bots;
+	struct LocalFilterSpec {
+		FilterId id = 0;
+		QString title;
+		ChatFilter::Flags flags;
+	};
+	const auto specs = std::array<LocalFilterSpec, 6>{{
+		{
+			kLocalFilterUnread,
+			tr::solar_LocalFolderUnread(tr::now),
+			allTypes | Flag::NoRead | Flag::NoArchived,
+		},
+		{
+			kLocalFilterUnmuted,
+			tr::solar_LocalFolderUnmuted(tr::now),
+			allTypes | Flag::NoMuted | Flag::NoRead | Flag::NoArchived,
+		},
+		{
+			kLocalFilterAdmin,
+			tr::solar_LocalFolderAdmin(tr::now),
+			allTypes | Flag::NoArchived,
+		},
+		{
+			kLocalFilterGroups,
+			tr::solar_LocalFolderGroups(tr::now),
+			Flag::Groups | Flag::NoArchived,
+		},
+		{
+			kLocalFilterChannels,
+			tr::solar_LocalFolderChannels(tr::now),
+			Flag::Channels | Flag::NoArchived,
+		},
+		{
+			kLocalFilterBots,
+			tr::solar_LocalFolderBots(tr::now),
+			Flag::Bots | Flag::NoArchived,
+		},
+	}};
+	for (const auto &spec : specs) {
+		if (!ranges::contains(_list, spec.id, &ChatFilter::id)) {
+			applyInsert(
+				ChatFilter(
+					spec.id,
+					{ TextWithEntities{ spec.title }, true },
+					QString(),
+					std::nullopt,
+					spec.flags,
+					{},
+					{},
+					{}),
+				int(_list.size()));
+			changed = true;
+		}
+	}
+	if (!std::is_partitioned(
+			begin(_list),
+			end(_list),
+			[](const ChatFilter &f) { return !IsLocalFilterId(f.id()); })) {
+		std::stable_partition(
+			begin(_list),
+			end(_list),
+			[](const ChatFilter &f) { return !IsLocalFilterId(f.id()); });
+		changed = true;
+	}
+	if (changed) {
+		_listChanged.fire({});
+	}
 }
 
 ChatFilters::~ChatFilters() = default;
@@ -543,12 +658,17 @@ void ChatFilters::received(const QVector<MTPDialogFilter> &list) {
 		++position;
 	}
 	while (position < _list.size()) {
-		applyRemove(position);
-		changed = true;
+		if (IsLocalFilterId(_list[position].id())) {
+			++position;
+		} else {
+			applyRemove(position);
+			changed = true;
+		}
 	}
 	if (!settings.hideAllChatsFolder() && !ranges::contains(begin(_list), end(_list), 0, &ChatFilter::id)) {
 		_list.insert(begin(_list), ChatFilter());
 	}
+	syncLocalFolders();
 	if (changed || !_loaded || _reloading) {
 		_loaded = true;
 		_reloading = false;
@@ -697,7 +817,13 @@ void ChatFilters::set(ChatFilter filter) {
 	}
 	const auto i = ranges::find(_list, filter.id(), &ChatFilter::id);
 	if (i == end(_list)) {
-		applyInsert(std::move(filter), _list.size());
+		auto insertPos = int(_list.size());
+		if (!IsLocalFilterId(filter.id())) {
+			while (insertPos > 0 && IsLocalFilterId(_list[insertPos - 1].id())) {
+				--insertPos;
+			}
+		}
+		applyInsert(std::move(filter), insertPos);
 		_listChanged.fire({});
 	} else if (applyChange(*i, std::move(filter))) {
 		_listChanged.fire({});
@@ -836,16 +962,24 @@ bool ChatFilters::applyChange(ChatFilter &filter, ChatFilter &&updated) {
 }
 
 bool ChatFilters::applyOrder(const QVector<MTPint> &order) {
-	if (order.size() != _list.size()) {
+	const auto serverCount = int(std::count_if(
+		begin(_list),
+		end(_list),
+		[](const ChatFilter &f) { return !IsLocalFilterId(f.id()); }));
+	if (order.size() != serverCount) {
 		return false;
-	} else if (_list.empty()) {
+	} else if (!serverCount) {
 		return true;
 	}
-	auto indices = ranges::views::all(
-		_list
-	) | ranges::views::transform(
-		&ChatFilter::id
-	) | ranges::to_vector;
+	std::stable_partition(
+		begin(_list),
+		end(_list),
+		[](const ChatFilter &f) { return !IsLocalFilterId(f.id()); });
+	std::vector<FilterId> indices;
+	indices.reserve(serverCount);
+	for (auto i = 0; i < serverCount; ++i) {
+		indices.push_back(_list[i].id());
+	}
 	auto b = indices.begin(), e = indices.end();
 	for (const auto &id : order) {
 		const auto i = ranges::find(b, e, id.v);
@@ -857,7 +991,7 @@ bool ChatFilters::applyOrder(const QVector<MTPint> &order) {
 		++b;
 	}
 	auto changed = false;
-	auto begin = _list.begin(), end = _list.end();
+	auto begin = _list.begin(), end = _list.begin() + serverCount;
 	for (const auto &id : order) {
 		const auto i = ranges::find(begin, end, id.v, &ChatFilter::id);
 		Assert(i != end);
@@ -917,7 +1051,9 @@ void ChatFilters::saveOrder(
 	auto ids = QVector<MTPint>();
 	ids.reserve(order.size());
 	for (const auto id : order) {
-		ids.push_back(MTP_int(id));
+		if (!IsLocalFilterId(id)) {
+			ids.push_back(MTP_int(id));
+		}
 	}
 	const auto wrapped = MTP_vector<MTPint>(ids);
 

@@ -118,6 +118,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QClipboard>
 
 // SolarGram includes
+#include "solar/solar_settings.h"
 #include "solar/ui/utils/solar_profile_values.h"
 #include "solar/utils/telegram_helpers.h"
 #include "styles/style_solar_styles.h"
@@ -1826,10 +1827,12 @@ Section DetailsFiller::makeInfo() {
 		});
 
 		if (!user->isBot()) {
-			tracker.track(result->add(
-				CreateBirthday(result, controller, user),
-				{},
-				style::al_justify));
+			if (!SolarSettings::getInstance().hideBirthdays()) {
+				tracker.track(result->add(
+					CreateBirthday(result, controller, user),
+					{},
+					style::al_justify));
+			}
 			tracker.track(result->add(
 				CreateWorkingHours(result, user), {}, style::al_justify));
 
@@ -1859,7 +1862,11 @@ Section DetailsFiller::makeInfo() {
 
 		{
 			const auto dataCenter = getPeerDC(_peer);
-			const auto idLabel = dataCenter.isEmpty() ? u"ID"_q : dataCenter;
+			const auto baseLabel = dataCenter.isEmpty() ? u"ID"_q : dataCenter;
+			const auto isMutual = (user->flags() & UserData::Flag::MutualContact);
+			const auto idLabel = isMutual
+				? (baseLabel + u" · "_q + tr::solar_MutualContact(tr::now))
+				: baseLabel;
 
 			auto idDrawableText = IDValue(
 				user

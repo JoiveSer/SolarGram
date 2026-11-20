@@ -57,7 +57,17 @@ std::optional<bool> isFiltered(
 			return false;
 		}
 
-		const auto match = matcher->find();
+		// Guard against catastrophic backtracking (ReDoS), aligned with Regram's matcher limits.
+		matcher->setTimeLimit(5, status);
+		matcher->setStackLimit(1024 * 1024, status);
+		if (U_FAILURE(status)) {
+			return false;
+		}
+
+		const auto match = matcher->find(status);
+		if (U_FAILURE(status)) {
+			return false;
+		}
 		const auto reversed = pattern.reversed;
 
 		if ((!reversed && match) || (reversed && !match)) {

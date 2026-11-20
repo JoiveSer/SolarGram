@@ -309,15 +309,24 @@ void HiddenUrlClickHandler::Open(QString url, QVariant context) {
 			my.forceExternalUrlConfirmation = true;
 			openContext = QVariant::fromValue(my);
 		}
-		const auto open = [=] {
-			UrlClickHandler::Open(url, openContext);
-		};
+		const auto confirmAllExternal
+			= SolarSettings::getInstance().confirmExternalLinks()
+			&& !skipConfirmation;
 		const auto requiresConfirmation = forceConfirmation
+			|| confirmAllExternal
 			|| (confirmAfterIvFallback && !canTryIv)
 			|| (HiddenUrlRequiresConfirmation(parsedUrl)
 				&& !skipConfirmation);
+		if (requiresConfirmation) {
+			my.externalUrlConfirmed = true;
+			openContext = QVariant::fromValue(my);
+		}
+		const auto open = [=] {
+			UrlClickHandler::Open(url, openContext);
+		};
 		const auto skipWarning
-			= SolarSettings::getInstance().disableOpenLinkWarning()
+			= !confirmAllExternal
+			&& SolarSettings::getInstance().disableOpenLinkWarning()
 			&& SolarUrlHandlers::IsWebUrl(parsedUrl);
 		if (!skipWarning && requiresConfirmation) {
 			if (!my.show) {

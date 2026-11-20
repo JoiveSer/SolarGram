@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/utils/telegram_helpers.h"
 
 
 namespace Data {
@@ -1009,8 +1010,9 @@ void RepliesList::sendReadTillRequest() {
 	const auto api = &_history->session().api();
 	api->request(base::take(_readRequestId)).cancel();
 
-	const auto &ghost = SolarSettings::ghost(&_history->session());
-	if (!ghost.sendReadMessages()) {
+	if (!SolarSettings::getInstance().effectiveShouldRead(
+			&_history->session(),
+			getDialogIdFromPeer(_history->peer))) {
 		return;
 	}
 

@@ -271,11 +271,29 @@ jobs:
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
           key: ${{ steps.cache-qt.outputs.cache-primary-key }}
 
+      - name: Ensure Ninja is available
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja -y --no-progress
+          }
+          ninja --version
+
+      - name: Setup ccache (MSVC)
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.OS }}-x64-ccache-qt6-${{ env.CACHE_KEY }}
+          variant: ccache
+          max-size: 2G
+          create-symlink: false
+
       - name: Configure and build SolarGram (Release x64)
         env:
           TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
           TDESKTOP_API_HASH: ${{ secrets.TDESKTOP_API_HASH }}
           USE_TEST_API: ${{ inputs.use_test_api_credentials }}
+          CCACHE_COMPRESS: "1"
+          CCACHE_SLOPPINESS: "pch_defines,time_macros,include_file_mtime,include_file_ctime"
         shell: pwsh
         run: |
           $repoDir = Join-Path $env:TBUILD $env:REPO_NAME
@@ -299,10 +317,12 @@ jobs:
           Push-Location $tgDir
           try {
             $cfgArgs = @(
-              'x64',
-              'qt6'
+              'qt6',
+              '-GNinja Multi-Config'
             ) + $apiArgs + @(
               '-D', 'CMAKE_CONFIGURATION_TYPES=Release',
+              '-D', 'CMAKE_C_COMPILER_LAUNCHER=ccache',
+              '-D', 'CMAKE_CXX_COMPILER_LAUNCHER=ccache',
               '-D', 'CMAKE_POLICY_DEFAULT_CMP0141=NEW',
               '-D', 'CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=',
               '-D', 'DESKTOP_APP_DISABLE_AUTOUPDATE=ON',

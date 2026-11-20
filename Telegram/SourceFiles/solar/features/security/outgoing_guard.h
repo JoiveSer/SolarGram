@@ -5,6 +5,7 @@
 #include <QString>
 
 class PeerData;
+struct TextWithEntities;
 struct TextWithTags;
 
 namespace SolarFeatures::OutgoingGuard {
@@ -19,6 +20,16 @@ void StripTrackingFromTextWithTags(TextWithTags &textWithTags);
 
 // Normalizes accidental ALL-CAPS outgoing messages while preserving /commands, URLs, and `code`.
 void ApplyAntiCaps(QString &text);
+
+// Expands shorthand tokens (:shrug:, :lenny:, etc.) while keeping tag offsets aligned.
+void ApplyTextReplacements(TextWithTags &textWithTags);
+
+// Inserts spacing between CJK Han characters and ASCII Latin/digits outside protected spans.
+void ApplyPanguSpacing(TextWithTags &textWithTags);
+
+// Strips standardized Russian foreign-agent statutory disclaimers while preserving text entities.
+[[nodiscard]] QString StripForeignAgentDisclaimer(const QString &text);
+void StripForeignAgentFromText(TextWithEntities &text);
 
 // Records 5-digit verification codes from recent incoming service notifications (777000) in RAM.
 void ObserveIncomingServiceMessage(const QString &text);

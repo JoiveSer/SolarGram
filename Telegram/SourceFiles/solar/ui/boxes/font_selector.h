@@ -3,6 +3,8 @@
 #pragma once
 
 #include "boxes/abstract_box.h"
+
+#include <optional>
 #include "base/binary_guard.h"
 
 struct LanguageId;
@@ -27,13 +29,21 @@ namespace SolarUi {
 class FontSelectorBox : public Ui::BoxContent
 {
 public:
-	FontSelectorBox(QWidget *, Window::SessionController *controller, Fn<void(QString font)> hook);
+	FontSelectorBox(
+		QWidget *,
+		Window::SessionController *controller,
+		Fn<void(QString font)> hook,
+		std::optional<QString> initialFont = std::nullopt);
 
 	void setInnerFocus() override;
-	static base::binary_guard Show(Window::SessionController *controller, const Fn<void(QString font)> hook);
+	static base::binary_guard Show(
+		Window::SessionController *controller,
+		const Fn<void(QString font)> hook,
+		std::optional<QString> initialFont = std::nullopt);
 
 private:
 	QString _selectedFont;
+	std::optional<QString> _initialFont;
 
 protected:
 	void prepare() override;

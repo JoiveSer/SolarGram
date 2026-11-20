@@ -87,6 +87,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // SolarGram includes
 #include "solar/solar_settings.h"
 #include "solar/solar_state.h"
+#include "solar/utils/telegram_helpers.h"
 
 
 namespace {
@@ -3415,6 +3416,14 @@ bool History::trackUnreadMessages() const {
 }
 
 bool History::shouldBeInChatList() const {
+	const auto &solar = SolarSettings::getInstance();
+	if (solar.decoyModeActive()) {
+		return false;
+	}
+	if (!solar.hiddenChatsRevealed()
+		&& solar.isChatHidden(getDialogIdFromPeer(peer))) {
+		return false;
+	}
 	if (peer->migrateTo() || !folderKnown()) {
 		return false;
 	} else if (const auto community = peer->asChannel()

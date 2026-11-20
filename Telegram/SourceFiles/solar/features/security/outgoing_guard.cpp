@@ -47,6 +47,24 @@ void PruneExpiredLocked(crl::time now) {
 	}
 }
 
+[[nodiscard]] bool IsHan(char32_t ch) {
+	return QChar::script(ch) == QChar::Script_Han;
+}
+
+[[nodiscard]] bool IsLatinOrDigit(char32_t ch) {
+	return (ch >= 'a' && ch <= 'z')
+		|| (ch >= 'A' && ch <= 'Z')
+		|| (ch >= '0' && ch <= '9');
+}
+
+[[nodiscard]] const QRegularExpression &ForeignAgentDisclaimerRegex() {
+	static const auto kPattern = QRegularExpression(
+		uR"((?:^|\n+)[ \t]*(?:18\+[ \t]+)?ДАННОЕ[ \t]+СООБЩЕНИЕ[ \t]*\([ \t]*МАТЕРИАЛ[ \t]*\)[ \t]+СОЗДАНО[ \t]+И[ \t]*(?:\([ \t]*ИЛИ[ \t]*\)[ \t]*)?РАСПРОСТРАНЕНО[^\n]{0,480}?ИНОСТРАННОГО[ \t]+АГЕНТА\.?[ \t]*(?=\n|$))"_q,
+		QRegularExpression::CaseInsensitiveOption
+			| QRegularExpression::UseUnicodePropertiesOption);
+	return kPattern;
+}
+
 [[nodiscard]] int AdjustOffsetForEdits(
 		int pos,
 		const std::vector<std::tuple<int, int, int>> &edits) {
@@ -258,6 +276,233 @@ void ApplyAntiCaps(QString &text) {
 			text[i] = ch.toLower();
 		}
 	}
+}
+
+void ApplyTextReplacements(TextWithTags &textWithTags) {
+	if (textWithTags.text.isEmpty()) {
+		return;
+	}
+	static const auto kReplacements = std::array<std::pair<QLatin1String, QString>, 12>{{
+		{ QLatin1String(":shrug:"), QString::fromUtf8("¯\\_(ツ)_/¯") },
+		{ QLatin1String(":lenny:"), QString::fromUtf8("( ͡° ͜ʖ ͡°)") },
+		{ QLatin1String(":tableflip:"), QString::fromUtf8("(╯°□°)╯︵ ┻━┻") },
+		{ QLatin1String(":unflip:"), QString::fromUtf8("┬─┬ ノ( ゜-゜ノ)") },
+		{ QLatin1String(":disapprove:"), QString::fromUtf8("ಠ_ಠ") },
+		{ QLatin1String(":check:"), QString::fromUtf8("✓") },
+		{ QLatin1String(":cross:"), QString::fromUtf8("✗") },
+		{ QLatin1String(":tm:"), QString::fromUtf8("™") },
+		{ QLatin1String("<-->"), QString::fromUtf8("↔") },
+		{ QLatin1String("-->"), QString::fromUtf8("→") },
+		{ QLatin1String("<--"), QString::fromUtf8("←") },
+		{ QLatin1String("!="), QString::fromUtf8("≠") },
+	}};
+	static const auto kTokenRe = QRegularExpression(
+		uR"((:shrug:|:lenny:|:tableflip:|:unflip:|:disapprove:|:check:|:cross:|:tm:|<-->|-->|<--|!=))"_q);
+
+	const auto &src = textWithTags.text;
+	auto inCode = std::vector<bool>(src.size(), false);
+	auto codeActive = false;
+	for (auto i = 0; i < src.size(); ++i) {
+		if (src.at(i) == u'`') {
+			codeActive = !codeActive;
+			inCode[i] = true;
+		} else {
+			inCode[i] = codeActive;
+		}
+	}
+
+	std::vector<std::tuple<int, int, int>> edits;
+	QString out;
+	out.reserve(src.size());
+	int cursor = 0;
+
+	auto it = kTokenRe.globalMatch(src);
+	while (it.hasNext()) {
+		const auto m = it.next();
+		const auto start = m.capturedStart();
+		const auto end = m.capturedEnd();
+		if (start < 0 || end <= start || inCode[start]) {
+			continue;
+		}
+		const auto token = m.captured(1);
+		for (const auto &[k, rep] : kReplacements) {
+			if (token == k) {
+				out.append(QStringView(src).sliced(cursor, start - cursor));
+				out.append(rep);
+				cursor = end;
+				edits.emplace_back(start, end, int(rep.size() - token.size()));
+				break;
+			}
+		}
+	}
+	if (edits.empty()) {
+		return;
+	}
+	out.append(QStringView(src).sliced(cursor));
+
+	for (auto &tag : textWithTags.tags) {
+		const auto origStart = tag.offset;
+		const auto origEnd = tag.offset + tag.length;
+		const auto newStart = AdjustOffsetForEdits(origStart, edits);
+		const auto newEnd = AdjustOffsetForEdits(origEnd, edits);
+		tag.offset = newStart;
+		tag.length = std::max(0, newEnd - newStart);
+	}
+	textWithTags.text = std::move(out);
+}
+
+void ApplyPanguSpacing(TextWithTags &textWithTags) {
+	const auto &src = textWithTags.text;
+	const auto length = int(src.size());
+	if (length < 2) {
+		return;
+	}
+
+	auto protectedBoundaries = std::vector<int>(length + 1, 0);
+	auto openBacktick = -1;
+	for (auto i = 0; i < length; ++i) {
+		if (src.at(i) == u'`') {
+			if (openBacktick < 0) {
+				openBacktick = i;
+			} else {
+				++protectedBoundaries[openBacktick];
+				--protectedBoundaries[i + 1];
+				openBacktick = -1;
+			}
+		}
+	}
+	for (const auto &tag : textWithTags.tags) {
+		const auto isProtected = (tag.id == u"code"_q)
+			|| tag.id.startsWith(u"pre"_q)
+			|| tag.id.contains(u"://"_q)
+			|| tag.id.startsWith(u"mention://"_q);
+		if (!isProtected) {
+			continue;
+		}
+		const auto start = std::clamp(tag.offset, 0, length);
+		const auto end = std::clamp(tag.offset + tag.length, start, length);
+		if (start < end) {
+			++protectedBoundaries[start];
+			--protectedBoundaries[end];
+		}
+	}
+
+	QString out;
+	out.reserve(length + 16);
+	auto before = std::vector<int>(length + 1);
+	auto after = std::vector<int>(length + 1);
+	auto previous = char32_t(0);
+	auto depth = 0;
+
+	for (auto i = 0; i != length;) {
+		depth += protectedBoundaries[i];
+		const auto first = src.at(i);
+		const auto surrogate = first.isHighSurrogate()
+			&& (i + 1 < length)
+			&& src.at(i + 1).isLowSurrogate();
+		const auto ch = surrogate
+			? QChar::surrogateToUcs4(first, src.at(i + 1))
+			: char32_t(first.unicode());
+		before[i] = int(out.size());
+		if (depth == 0 && ((IsHan(previous) && IsLatinOrDigit(ch))
+			|| (IsLatinOrDigit(previous) && IsHan(ch)))) {
+			out += u' ';
+		}
+		after[i] = int(out.size());
+		out += first;
+		if (surrogate) {
+			++i;
+			depth += protectedBoundaries[i];
+			before[i] = after[i] = int(out.size());
+			out += src.at(i);
+		}
+		++i;
+		previous = ch;
+	}
+	before[length] = after[length] = int(out.size());
+	if (out.size() == length) {
+		return;
+	}
+
+	for (auto &tag : textWithTags.tags) {
+		const auto origStart = std::clamp(tag.offset, 0, length);
+		const auto origEnd = std::clamp(tag.offset + tag.length, origStart, length);
+		const auto newStart = after[origStart];
+		const auto newEnd = before[origEnd];
+		tag.offset = newStart;
+		tag.length = std::max(0, newEnd - newStart);
+	}
+	textWithTags.text = std::move(out);
+}
+
+void StripForeignAgentFromText(TextWithEntities &text) {
+	if (text.text.isEmpty() || text.text.size() < 32) {
+		return;
+	}
+	const auto &src = text.text;
+	std::vector<std::tuple<int, int, int>> edits;
+	QString out;
+	out.reserve(src.size());
+	auto cursor = 0;
+
+	auto it = ForeignAgentDisclaimerRegex().globalMatch(src);
+	while (it.hasNext()) {
+		const auto m = it.next();
+		const auto start = std::max(cursor, int(m.capturedStart()));
+		auto end = int(m.capturedEnd());
+		if (end <= start) {
+			continue;
+		}
+		if (start == 0) {
+			while (end < src.size()
+				&& (src[end] == u'\n' || src[end] == u'\r' || src[end] == u' ')) {
+				++end;
+			}
+		}
+		out.append(QStringView(src).sliced(cursor, start - cursor));
+		cursor = end;
+		edits.emplace_back(start, end, -(end - start));
+	}
+	if (edits.empty()) {
+		return;
+	}
+	out.append(QStringView(src).sliced(cursor));
+
+	EntitiesInText adjusted;
+	adjusted.reserve(text.entities.size());
+	const auto maxLen = int(out.size());
+	for (const auto &entity : text.entities) {
+		const auto origStart = entity.offset();
+		const auto origEnd = origStart + entity.length();
+		const auto newStart = std::clamp(
+			AdjustOffsetForEdits(origStart, edits),
+			0,
+			maxLen);
+		const auto newEnd = std::clamp(
+			AdjustOffsetForEdits(origEnd, edits),
+			newStart,
+			maxLen);
+		const auto newLen = newEnd - newStart;
+		if (newLen > 0) {
+			auto copy = EntityInText(
+				entity.type(),
+				newStart,
+				newLen,
+				entity.data());
+			if (entity.isLocal()) {
+				copy.setLocal();
+			}
+			adjusted.push_back(std::move(copy));
+		}
+	}
+	text.text = std::move(out);
+	text.entities = std::move(adjusted);
+}
+
+QString StripForeignAgentDisclaimer(const QString &text) {
+	auto wrapped = TextWithEntities{ text };
+	StripForeignAgentFromText(wrapped);
+	return wrapped.text;
 }
 
 void ObserveIncomingServiceMessage(const QString &text) {

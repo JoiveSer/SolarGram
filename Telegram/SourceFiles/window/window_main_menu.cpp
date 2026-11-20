@@ -87,6 +87,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_solar_icons.h"
 #include "lang_auto.h"
 #include "solar/ui/settings/settings_main.h"
+#include "solar/ui/settings/settings_solar_utils.h"
 #include "styles/style_info.h"
 
 
@@ -839,6 +840,12 @@ void MainMenu::setupMenu() {
 			_controller->session().supportTemplates().reload();
 		});
 	}
+	addAction(
+		tr::solar_RecentChats(),
+		{ &st::menuIconShowAll }
+	)->setClickedCallback([=] {
+		Settings::ShowRecentChatsBox(controller);
+	});
 	addAction(
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }

@@ -405,7 +405,7 @@ Document::Document(
 			_parent->data()->removeFromSharedMediaIndex();
 			setDocumentLinks(_data, realParent, [=] {
 				const auto &settings = SolarSettings::getInstance();
-				if (!settings.saveDeletedMessages()) {
+				if (!settings.keepOneViewMedia() && !settings.saveDeletedMessages()) {
 					_openl = nullptr;
 				}
 

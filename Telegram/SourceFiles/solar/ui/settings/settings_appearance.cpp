@@ -216,13 +216,52 @@ void BuildAppearance(SectionBuilder &builder, SolarSectionBuilder &solar) {
 			settings->monoFont().isEmpty()
 				? tr::solar_FontDefault(tr::now)
 				: settings->monoFont()),
-		.onClick = [=] {
-			SolarUi::FontSelectorBox::Show(
-				controller,
-				[=](const QString &font) {
-					SolarSettings::getInstance().setMonoFont(font);
-				});
+		.onClick = [weak = base::make_weak(controller)] {
+			if (const auto c = weak.get()) {
+				SolarUi::FontSelectorBox::Show(
+					c,
+					[](const QString &font) {
+						SolarSettings::getInstance().setMonoFont(font);
+					});
+			}
 		},
+	});
+	builder.addButton({
+		.id = u"solar/mainFont"_q,
+		.title = tr::solar_MainFont(),
+		.st = &st::settingsButtonNoIcon,
+		.label = settings->mainFontValue(
+		) | rpl::map([=](const QString &font) {
+			return font.isEmpty() ? tr::solar_FontDefault(tr::now) : font;
+		}),
+		.onClick = [weak = base::make_weak(controller)] {
+			if (const auto c = weak.get()) {
+				SolarUi::FontSelectorBox::Show(
+					c,
+					[](const QString &font) {
+						SolarSettings::getInstance().setMainFont(font);
+					},
+					SolarSettings::getInstance().mainFont());
+			}
+		},
+	});
+	solar.addSettingToggle({
+		.id = u"solar/showAlwaysOnTopButton"_q,
+		.title = tr::solar_ShowAlwaysOnTopButton(),
+		.getter = &SolarSettings::showAlwaysOnTopButton,
+		.setter = &SolarSettings::setShowAlwaysOnTopButton,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/streamerMaskPrivacy"_q,
+		.title = tr::solar_StreamerMaskPrivacy(),
+		.getter = &SolarSettings::streamerMaskPrivacy,
+		.setter = &SolarSettings::setStreamerMaskPrivacy,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/streamerMaskNotifications"_q,
+		.title = tr::solar_StreamerMaskNotifications(),
+		.getter = &SolarSettings::streamerMaskNotifications,
+		.setter = &SolarSettings::setStreamerMaskNotifications,
 	});
 
 	solar.addSectionDivider();
@@ -245,6 +284,15 @@ void BuildChatFolders(SectionBuilder &builder, SolarSectionBuilder &solar) {
 		.getter = &SolarSettings::hideAllChatsFolder,
 		.setter = &SolarSettings::setHideAllChatsFolder,
 	});
+	solar.addSettingToggle({
+		.id = u"solar/localFolders"_q,
+		.title = tr::solar_LocalFolders(),
+		.getter = &SolarSettings::localFoldersEnabled,
+		.setter = &SolarSettings::setLocalFoldersEnabled,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_LocalFoldersAbout());
+	builder.addSkip();
 
 	solar.addSectionDivider();
 }

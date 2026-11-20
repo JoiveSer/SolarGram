@@ -4,6 +4,7 @@
 
 #include "lang_auto.h"
 #include "solar/solar_settings.h"
+#include "solar/data/solar_database.h"
 #include "solar/ui/settings/solar_builder.h"
 #include "solar/ui/settings/settings_solar_utils.h"
 #include "solar/ui/settings/settings_main.h"
@@ -58,10 +59,23 @@ void BuildProjectLinks(SectionBuilder &builder) {
 }
 
 void BuildCrashReporting(SectionBuilder &builder, SolarSectionBuilder &solar) {
-#ifndef TDESKTOP_DISABLE_AUTOUPDATE
 	builder.addSkip();
 	builder.addSubsectionTitle(tr::solar_CategoryOther());
 
+	solar.addToggle({
+		.id = u"solar/walMode"_q,
+		.title = tr::solar_WALMode(),
+		.getter = [] { return SolarSettings::getInstance().walMode(); },
+		.setter = [](bool v) {
+			SolarSettings::getInstance().setWalMode(v);
+			SolarDatabase::setWalMode(v);
+		},
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_WALModeAbout());
+	builder.addSkip();
+
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
 	solar.addSettingToggle({
 		.id = u"solar/crashReporting"_q,
 		.altIds = { u"solar/crashlytics"_q },

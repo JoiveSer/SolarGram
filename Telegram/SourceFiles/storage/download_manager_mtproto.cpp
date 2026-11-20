@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 #include "apiwrap.h"
 #include "base/openssl_help.h"
+#include "solar/solar_settings.h"
 
 namespace Storage {
 namespace {
@@ -110,7 +111,9 @@ void DownloadManagerMtproto::Queue::removeSession(int index) {
 }
 
 DownloadManagerMtproto::DcSessionBalanceData::DcSessionBalanceData()
-: maxWaitedAmount(kStartWaitedInSession) {
+: maxWaitedAmount(SolarSettings::getInstance().downloadSpeedBoost()
+	? kMaxWaitedInSession
+	: kStartWaitedInSession) {
 }
 
 DownloadManagerMtproto::DcBalanceData::DcBalanceData()
@@ -270,9 +273,12 @@ void DownloadManagerMtproto::requestSucceeded(
 			).arg(data.maxWaitedAmount));
 	}
 	data.successes = std::min(data.successes + 1, kMaxTrackedSuccesses);
+	const auto boost = SolarSettings::getInstance().downloadSpeedBoost();
+	const auto threshold = (dc.sessionRemoveTimes + 1)
+		* (boost ? 1 : kRetryAddSessionSuccesses);
 	const auto notEnough = ranges::any_of(
 		dc.sessions,
-		_1 < (dc.sessionRemoveTimes + 1) * kRetryAddSessionSuccesses,
+		_1 < threshold,
 		&DcSessionBalanceData::successes);
 	if (notEnough) {
 		return;

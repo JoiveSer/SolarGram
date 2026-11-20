@@ -3,6 +3,7 @@
 #include "solar/features/translator/solar_translator.h"
 
 #include "api/api_text_entities.h"
+#include "solar/features/translator/implementations/extra.h"
 #include "solar/features/translator/implementations/google.h"
 #include "solar/features/translator/implementations/yandex.h"
 #include "data/data_peer.h"
@@ -10,6 +11,7 @@
 #include "history/history_item.h"
 #include "main/main_session.h"
 
+#include <memory>
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QString>
 #include <QtNetwork/QNetworkReply>
@@ -25,6 +27,12 @@ BaseTranslator *translatorForProvider(TranslationProvider provider) {
 		return &YandexTranslator::instance();
 	case TranslationProvider::Google:
 		return &GoogleTranslator::instance();
+	case TranslationProvider::DeepLX:
+		return &ExtraTranslator::deeplx();
+	case TranslationProvider::TranSmart:
+		return &ExtraTranslator::transmart();
+	case TranslationProvider::SolarBrainLLM:
+		return &ExtraTranslator::solarBrain();
 	case TranslationProvider::Telegram:
 	case TranslationProvider::Native:
 		return nullptr;
@@ -206,12 +214,7 @@ mtpRequestId TranslateManager::performTranslation(Builder &req) {
 		triggerDone(id, result);
 	};
 
-	CallbackFail onFail = [this, id]
-	{
-		triggerFail(id);
-	};
-
-	const auto args = StartTranslationArgs{
+	auto args = StartTranslationArgs{
 		.session = req.session(),
 		.requestData = {
 			.flags = req.flags(),
@@ -225,9 +228,36 @@ mtpRequestId TranslateManager::performTranslation(Builder &req) {
 			.fromLang = fromLang,
 			.toLang = toLang,
 		},
-		.onSuccess = std::move(onSuccess),
-		.onFail = std::move(onFail),
+		.onSuccess = onSuccess,
+		.onFail = {},
 	};
+
+	const auto canFallbackToGoogle = (req._provider != TranslationProvider::Google)
+		&& (req._provider != TranslationProvider::Telegram)
+		&& (req._provider != TranslationProvider::Native);
+	if (canFallbackToGoogle) {
+		auto fallbackArgs = args;
+		fallbackArgs.onFail = [this, id] {
+			triggerFail(id);
+		};
+		auto fallbackTriggered = std::make_shared<bool>(false);
+		args.onFail = [
+				this,
+				id,
+				fallbackArgs = std::move(fallbackArgs),
+				fallbackTriggered]() mutable {
+			if (*fallbackTriggered || !_pending.contains(id)) {
+				return;
+			}
+			*fallbackTriggered = true;
+			LOG(("SolarTranslator: primary provider failed, falling back to Google."));
+			GoogleTranslator::instance().startTranslation(fallbackArgs);
+		};
+	} else {
+		args.onFail = [this, id] {
+			triggerFail(id);
+		};
+	}
 
 	if (const auto it = _pending.find(id); it != _pending.end()) {
 		const auto translator = translatorForProvider(req._provider);

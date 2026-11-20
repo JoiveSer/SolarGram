@@ -439,6 +439,78 @@ void BuildMessageFieldPopups(SectionBuilder &builder, SolarSectionBuilder &solar
 		.setter = &SolarSettings::setShowEmojiPopup,
 		.icon = { &st::messageFieldEmojiIcon },
 	});
+
+	solar.addSectionDivider();
+}
+
+void BuildMessageQoL(SectionBuilder &builder, SolarSectionBuilder &solar) {
+	solar.addSettingToggle({
+		.id = u"solar/copyUsernameAsLink"_q,
+		.title = tr::solar_CopyUsernameAsLink(),
+		.getter = &SolarSettings::copyUsernameAsLink,
+		.setter = &SolarSettings::setCopyUsernameAsLink,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/deleteForAllByDefault"_q,
+		.title = tr::solar_DeleteForAllByDefault(),
+		.getter = &SolarSettings::deleteForAllByDefault,
+		.setter = &SolarSettings::setDeleteForAllByDefault,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/seekbarForRoundVideos"_q,
+		.title = tr::solar_SeekbarForRoundVideos(),
+		.getter = &SolarSettings::seekbarForRoundVideos,
+		.setter = &SolarSettings::setSeekbarForRoundVideos,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/textReplacements"_q,
+		.title = tr::solar_TextReplacements(),
+		.getter = &SolarSettings::textReplacementsEnabled,
+		.setter = &SolarSettings::setTextReplacementsEnabled,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_TextReplacementsAbout());
+	builder.addSkip();
+	solar.addSettingToggle({
+		.id = u"solar/panguSpacing"_q,
+		.title = tr::solar_PanguSpacing(),
+		.getter = &SolarSettings::panguSpacing,
+		.setter = &SolarSettings::setPanguSpacing,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/stripForeignAgent"_q,
+		.title = tr::solar_StripForeignAgent(),
+		.getter = &SolarSettings::stripForeignAgentDisclaimers,
+		.setter = &SolarSettings::setStripForeignAgentDisclaimers,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/unreadChatsFirst"_q,
+		.title = tr::solar_UnreadChatsFirst(),
+		.getter = &SolarSettings::unreadChatsFirst,
+		.setter = &SolarSettings::setUnreadChatsFirst,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/hideBirthdays"_q,
+		.title = tr::solar_HideBirthdays(),
+		.getter = &SolarSettings::hideBirthdays,
+		.setter = &SolarSettings::setHideBirthdays,
+	});
+	solar.addSettingToggle({
+		.id = u"solar/hideGiftsUi"_q,
+		.title = tr::solar_HideGiftsUi(),
+		.getter = &SolarSettings::hideGiftsUi,
+		.setter = &SolarSettings::setHideGiftsUi,
+	});
+	builder.addButton({
+		.id = u"solar/recentChats"_q,
+		.title = tr::solar_RecentChats(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [controller = builder.controller()] {
+			if (controller) {
+				ShowRecentChatsBox(controller);
+			}
+		},
+	});
 }
 
 const auto kMeta = BuildHelper({
@@ -458,6 +530,7 @@ const auto kMeta = BuildHelper({
 	BuildContextMenuElements(builder, solar);
 	BuildMessageFieldElements(builder, solar);
 	BuildMessageFieldPopups(builder, solar);
+	BuildMessageQoL(builder, solar);
 	builder.addSkip();
 });
 

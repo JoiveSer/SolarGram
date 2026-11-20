@@ -542,7 +542,7 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 	};
 	const auto &list = session->data().chatsFilters().list();
 	for (const auto &filter : list) {
-		if (filter.id()) {
+		if (filter.id() && !Data::IsLocalFilterId(filter.id())) {
 			addFilter(filter);
 		}
 	}
@@ -603,7 +603,8 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		auto localId = 1;
 		const auto chooseNextId = [&] {
 			++localId;
-			while (ranges::contains(list, localId, &Data::ChatFilter::id)) {
+			while (Data::IsLocalFilterId(localId)
+				|| ranges::contains(list, localId, &Data::ChatFilter::id)) {
 				++localId;
 			}
 			return localId;

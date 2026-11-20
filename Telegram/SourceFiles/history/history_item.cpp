@@ -84,8 +84,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/data/messages_storage.h"
 #include "solar/features/filters/filters_controller.h"
 #include "solar/features/message_shot/message_shot.h"
+#include "solar/features/security/outgoing_guard.h"
 #include "solar/utils/telegram_helpers.h"
 #include "ui/emoji_config.h"
 
@@ -2892,7 +2894,10 @@ void HistoryItem::clearMediaAsExpired() {
 
 	unarmMediaDestroy();
 	const auto &settings = SolarSettings::getInstance();
-	if (settings.saveDeletedMessages()) {
+	if (settings.keepOneViewMedia() || settings.saveDeletedMessages()) {
+		if (settings.keepOneViewMedia() && isMessageSavable(this)) {
+			SolarMessages::addDeletedMessage(this);
+		}
 		RemoveComponents(HistoryServiceSelfDestruct::Bit());
 		_history->owner().requestItemViewRefresh(this);
 		return;
@@ -3316,6 +3321,9 @@ bool HistoryItem::forbidsSaving() const {
 }
 
 bool HistoryItem::allowsMediaDownloadControls() const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return true;
+	}
 	return !forbidsSaving()
 		&& _history->peer->allowsForwarding()
 		&& (!_media || _media->allowsForward());
@@ -4658,6 +4666,9 @@ void HistoryItem::setText(TextWithEntities textWithEntities) {
 	const auto &settings = SolarSettings::getInstance();
 	if (settings.filterZalgo()) {
 		text.text = filterZalgo(text.text);
+	}
+	if (settings.stripForeignAgentDisclaimers()) {
+		SolarFeatures::OutgoingGuard::StripForeignAgentFromText(text);
 	}
 
 	applyLocalPremiumEmoji(text);

@@ -21,6 +21,8 @@ void AddSolarGramActions(PeerData *peerData,
 							   Data::Thread *thread,
 							   not_null<Window::SessionController*> sessionController,
 							   const Window::PeerMenuCallback &addCallback);
+void ShowPresenceHistoryBox(not_null<Window::SessionController*> controller,
+							not_null<PeerData*> peer);
 
 void AddJumpToBeginningAction(PeerData *peerData,
 							  Data::Thread *thread,
@@ -48,5 +50,22 @@ void AddCreateFilterAction(not_null<Ui::PopupMenu*> menu,
 						   not_null<Window::SessionController*> controller,
 						   HistoryItem *item,
 						   const QString &selectedText);
+
+void AddDeletedQuoteAction(
+	not_null<Ui::PopupMenu*> menu,
+	HistoryItem *item,
+	Fn<void(QString)> insertText);
+
+void AddForwardToSavedCleanAction(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<Window::SessionController*> controller,
+	const MessageIdsList &ids,
+	Fn<void()> onDone = nullptr);
+
+void AddForwardToSavedCleanAction(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<Window::SessionController*> controller,
+	const std::vector<not_null<HistoryItem*>> &items,
+	Fn<void()> onDone = nullptr);
 
 }

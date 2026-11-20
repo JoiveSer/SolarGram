@@ -8,6 +8,8 @@
 #include "ui/widgets/checkbox.h"
 #include "ui/wrap/slide_wrap.h"
 
+#include <optional>
+
 namespace Window {
 class SessionController;
 } // namespace Window
@@ -109,5 +111,16 @@ not_null<Button*> AddSettingToggle(
 	BoolGetter getter,
 	BoolSetter setter,
 	const style::icon &icon);
+
+void ShowSolarPinBox(
+	not_null<Window::SessionController*> controller,
+	rpl::producer<QString> title,
+	rpl::producer<QString> placeholder,
+	std::optional<rpl::producer<QString>> description,
+	bool hasExisting,
+	Fn<void(const QString &)> onSave,
+	Fn<void()> onClear = nullptr);
+
+void ShowRecentChatsBox(not_null<Window::SessionController*> controller);
 
 } // namespace Settings

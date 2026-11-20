@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/utils/telegram_helpers.h"
 
 
 namespace Api {
@@ -118,8 +119,9 @@ void SendProgressManager::send(const Key &key, int progress) {
 	}
 
 	// SolarGram sendUploadProgress
-	const auto &ghost = SolarSettings::ghost(_session);
-	if (!ghost.sendUploadProgress())
+	if (!SolarSettings::getInstance().effectiveShouldSendTyping(
+			_session,
+			getDialogIdFromPeer(key.history->peer)))
 	{
 		DEBUG_LOG(("[SolarGram] Don't send upload progress"));
 		return;

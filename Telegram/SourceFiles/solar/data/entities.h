@@ -2,7 +2,12 @@
 // Built on Telegram Desktop under GNU GPLv3.
 #pragma once
 
+#include <QtCore/QJsonObject>
+
+#include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 using ID = long long;
 
@@ -130,4 +135,15 @@ public:
 	ID dialogId;
 	int messageId;
 	int entityCreateDate;
+};
+
+class SpyPresenceLog
+{
+public:
+	ID fakeId;
+	ID userId;
+	ID peerId;
+	int eventType; // 0=online, 1=offline, 2=name/username, 3=phone, 4=bio, 5=hidden_last_seen
+	int timestamp;
+	std::string details;
 };

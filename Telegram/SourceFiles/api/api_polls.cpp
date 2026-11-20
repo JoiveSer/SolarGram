@@ -387,8 +387,9 @@ void Polls::sendVotes(
 			}
 		}
 		_session->updates().applyUpdates(result);
+		const auto &settings = SolarSettings::getInstance();
 		const auto &ghost = SolarSettings::ghost(_session);
-		if (!ghost.sendReadMessages()
+		if (!settings.effectiveShouldRead(_session, getDialogIdFromPeer(peer))
 			&& ghost.markReadAfterAction()
 			&& item) {
 			readHistory(item);

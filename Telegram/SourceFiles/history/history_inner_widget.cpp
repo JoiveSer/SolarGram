@@ -3372,6 +3372,14 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 
 		SolarUi::AddReadUntilAction(_menu, item);
 		SolarUi::AddBurnAction(_menu, item);
+		if (item) {
+			SolarUi::AddDeletedQuoteAction(
+				_menu,
+				item,
+				crl::guard(_widget, [widget = _widget](QString text) {
+					widget->insertTextAtCursor(text);
+				}));
+		}
 	};
 
 	const auto addReplyAction = [&](HistoryItem *item) {
@@ -3513,6 +3521,13 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 					_widget->forwardSelected();
 				}, &st::menuIconForward);
+				SolarUi::AddForwardToSavedCleanAction(
+					_menu,
+					controller,
+					selectedItemsForExport(),
+					crl::guard(_widget, [widget = _widget] {
+						widget->clearSelected();
+					}));
 			}
 			if (selectedState.count > 0 && selectedState.canDeleteCount == selectedState.count) {
 				_menu->addAction(tr::lng_context_delete_selected(tr::now), [=] {
@@ -3543,6 +3558,10 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					_menu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 						forwardItem(itemId);
 					}, &st::menuIconForward);
+					SolarUi::AddForwardToSavedCleanAction(
+						_menu,
+						controller,
+						{ 1, itemId });
 				}
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {
@@ -3830,6 +3849,13 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 					_widget->forwardSelected();
 				}, &st::menuIconForward);
+				SolarUi::AddForwardToSavedCleanAction(
+					_menu,
+					controller,
+					selectedItemsForExport(),
+					crl::guard(_widget, [widget = _widget] {
+						widget->clearSelected();
+					}));
 			}
 			if (selectedState.count > 0 && selectedState.count == selectedState.canDeleteCount) {
 				_menu->addAction(tr::lng_context_delete_selected(tr::now), [=] {
@@ -4013,11 +4039,17 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 }
 
 bool HistoryInner::hasCopyRestriction(HistoryItem *item) const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	return !_peer->allowsForwarding() || (item && item->forbidsForward());
 }
 
 bool HistoryInner::hasCopyMediaRestriction(
 		not_null<HistoryItem*> item) const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	return hasCopyRestriction(item) || item->forbidsSaving();
 }
 
@@ -4046,6 +4078,9 @@ bool HistoryInner::showCopyMediaRestriction(not_null<HistoryItem*> item) {
 }
 
 bool HistoryInner::hasCopyRestrictionForSelected() const {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	if (hasCopyRestriction()) {
 		return true;
 	}
@@ -4060,6 +4095,9 @@ bool HistoryInner::hasCopyRestrictionForSelected() const {
 }
 
 bool HistoryInner::showCopyRestrictionForSelected() {
+	if (SolarSettings::getInstance().forcedCopy()) {
+		return false;
+	}
 	for (const auto &item : _selected) {
 		if (showCopyRestriction(item)) {
 			return true;

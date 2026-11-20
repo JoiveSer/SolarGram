@@ -374,12 +374,25 @@ void FiltersMenu::refresh() {
 	const auto maxLimit = (reorderAll ? 1 : 0)
 		+ Data::PremiumLimits(&_session->session()).dialogFiltersCurrent();
 	const auto premiumFrom = (reorderAll ? 0 : 1) + maxLimit;
+	const auto &filtersList = filters->list();
+	auto serverEnd = 0;
+	while (serverEnd < int(filtersList.size())
+		&& !Data::IsLocalFilterId(filtersList[serverEnd].id())) {
+		++serverEnd;
+	}
 	if (!reorderAll && !settings.hideAllChatsFolder()) {
 		_reorder->addPinnedInterval(0, 1);
 	}
-	_reorder->addPinnedInterval(
-		premiumFrom,
-		std::max(1, int(filters->list().size()) - maxLimit));
+	if (premiumFrom < serverEnd) {
+		_reorder->addPinnedInterval(
+			premiumFrom,
+			serverEnd - premiumFrom);
+	}
+	if (serverEnd < int(filtersList.size())) {
+		_reorder->addPinnedInterval(
+			serverEnd,
+			int(filtersList.size()) - serverEnd);
+	}
 
 	// Remember which folder holds keyboard focus so the roving Tab-stop can be
 	// re-established on its replacement after the rebuild: the new buttons are
@@ -395,8 +408,9 @@ void FiltersMenu::refresh() {
 
 	auto now = base::flat_map<int, base::unique_qptr<Ui::SideBarButton>>();
 	const auto &currentFilter = _session->activeChatsFilterCurrent();
-	for (const auto &filter : filters->list()) {
-		const auto nextIsLocked = (now.size() >= premiumFrom);
+	for (const auto &filter : filtersList) {
+		const auto nextIsLocked = !Data::IsLocalFilterId(filter.id())
+			&& (int(now.size()) >= premiumFrom);
 		if (nextIsLocked && (currentFilter == filter.id())) {
 			_session->setActiveChatsFilter(FilterId(0));
 		}
@@ -721,13 +735,14 @@ base::unique_qptr<Ui::SideBarButton> FiltersMenu::prepareButton(
 		}
 	});
 	if (id >= 0) {
-		raw->setAcceptDrops(true);
+		const auto isLocal = Data::IsLocalFilterId(id);
+		raw->setAcceptDrops(!isLocal);
 		raw->events(
 		) | rpl::filter([=](not_null<QEvent*> e) {
 			return ((e->type() == QEvent::ContextMenu) && (id >= 0))
-				|| e->type() == QEvent::DragEnter
-				|| e->type() == QEvent::DragMove
-				|| e->type() == QEvent::DragLeave;
+				|| (!isLocal && (e->type() == QEvent::DragEnter
+					|| e->type() == QEvent::DragMove
+					|| e->type() == QEvent::DragLeave));
 		}) | rpl::on_next([=](not_null<QEvent*> e) {
 			if (raw->locked()) {
 				return;
@@ -783,10 +798,12 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 		st::popupMenuWithIcons);
 	const auto addAction = Ui::Menu::CreateAddActionCallback(_popupMenu);
 	if (id) {
-		addAction(
-			tr::lng_filters_context_edit(tr::now),
-			crl::guard(&_outer, [=] { EditExistingFilter(_session, id); }),
-			&st::menuIconEdit);
+		if (!Data::IsLocalFilterId(id)) {
+			addAction(
+				tr::lng_filters_context_edit(tr::now),
+				crl::guard(&_outer, [=] { EditExistingFilter(_session, id); }),
+				&st::menuIconEdit);
+		}
 
 		auto filteredChats = [=] {
 			return _session->session().data().chatsFilters().chatsList(id);
@@ -797,14 +814,16 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 			std::move(filteredChats),
 			addAction);
 
-		addAction({
-			.text = tr::lng_filters_context_remove(tr::now),
-			.handler = crl::guard(&_outer, [=, this] {
-				_removeApi.request(base::make_weak(&_outer), _session, id);
-			}),
-			.icon = &st::menuIconDeleteAttention,
-			.isAttention = true,
-		});
+		if (!Data::IsLocalFilterId(id)) {
+			addAction({
+				.text = tr::lng_filters_context_remove(tr::now),
+				.handler = crl::guard(&_outer, [=, this] {
+					_removeApi.request(base::make_weak(&_outer), _session, id);
+				}),
+				.icon = &st::menuIconDeleteAttention,
+				.isAttention = true,
+			});
+		}
 	} else {
 		MarkAsReadMenu::AddChatListAction(
 			_session,

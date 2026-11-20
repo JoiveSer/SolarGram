@@ -3398,6 +3398,28 @@ void HistoryWidget::showHistory(
 			) | rpl::on_next([=] {
 				updateControlsGeometry();
 			}, _businessBotStatus->bar().lifetime());
+			if (SolarSettings::getInstance().phishingGuard()
+				&& !user->isVerified()
+				&& !user->isSupport()
+				&& !user->isSelf()
+				&& !user->isContact()) {
+				const auto lowerName = user->name().toLower();
+				const auto lowerUser = user->username().toLower();
+				const auto looksLikeSupport = lowerName.contains(u"support"_q)
+					|| lowerName.contains(u"поддерж"_q)
+					|| lowerName.contains(u"helpdesk"_q)
+					|| lowerUser.contains(u"support"_q)
+					|| lowerUser.contains(u"helpdesk"_q);
+				static base::flat_set<std::pair<uint64, uint64>> warnedFakeSupport;
+				if (looksLikeSupport
+					&& warnedFakeSupport.emplace(
+						session().userId().bare,
+						user->id.value).second) {
+					controller()->window().showToast(
+						tr::solar_FakeSupportWarning(tr::now),
+						6000);
+				}
+			}
 		}
 		orderWidgets();
 		controller()->tabbedSelector()->setCurrentPeer(_peer);
@@ -5969,6 +5991,12 @@ void HistoryWidget::sendTextWithTags(
 	}
 	if (solarSettings.antiCaps()) {
 		SolarFeatures::OutgoingGuard::ApplyAntiCaps(textWithTags.text);
+	}
+	if (solarSettings.textReplacementsEnabled()) {
+		SolarFeatures::OutgoingGuard::ApplyTextReplacements(textWithTags);
+	}
+	if (solarSettings.panguSpacing()) {
+		SolarFeatures::OutgoingGuard::ApplyPanguSpacing(textWithTags);
 	}
 	if (solarSettings.loginCodeLeakGuard()
 		&& _history

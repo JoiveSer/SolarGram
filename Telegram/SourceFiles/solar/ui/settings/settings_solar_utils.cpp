@@ -729,10 +729,19 @@ void ShowSolarPinBox(
 				std::move(*description),
 				st::boxLabel));
 		}
-		const auto field = box->addRow(object_ptr<Ui::PasswordInput>(
-			box,
+		auto container = object_ptr<Ui::RpWidget>(box);
+		container->resize(container->width(), st::defaultInputField.heightMin);
+		const auto field = Ui::CreateChild<Ui::PasswordInput>(
+			container.data(),
 			st::defaultInputField,
-			placeholder));
+			placeholder);
+		container->geometryValue(
+		) | rpl::on_next([=](const QRect &r) {
+			if (r.width() > 0) {
+				field->setGeometry(0, 0, r.width(), r.height());
+			}
+		}, container->lifetime());
+		box->addRow(std::move(container));
 		box->setFocusCallback([=] { field->setFocusFast(); });
 		const auto submit = [=] {
 			const auto pin = field->getLastText().trimmed();
@@ -743,7 +752,7 @@ void ShowSolarPinBox(
 			onSave(pin);
 			box->closeBox();
 		};
-		QObject::connect(field, &QLineEdit::returnPressed, box, submit);
+		QObject::connect(field, &Ui::MaskedInputField::submitted, box, submit);
 		if (hasExisting && onClear) {
 			box->addLeftButton(tr::solar_DuressClearPin(), [=] {
 				onClear();

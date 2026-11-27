@@ -1157,13 +1157,14 @@ void BuildPartisanSecurity(SectionBuilder &builder, SolarSectionBuilder &solar) 
 						return;
 					}
 					const auto path = result.paths.front();
+					const auto importOptions = std::vector<QString>{
+						tr::solar_ImportMerge(tr::now),
+						tr::solar_ImportReplace(tr::now),
+					};
 					c->show(Box([=](not_null<Ui::GenericBox*> box) {
 						SingleChoiceBox(box, {
 							.title = tr::solar_ImportBackupMode(),
-							.options = {
-								tr::solar_ImportMerge(tr::now),
-								tr::solar_ImportReplace(tr::now),
-							},
+							.options = importOptions,
 							.initialSelection = 0,
 							.callback = [=](int index) {
 								const auto replace = (index == 1);

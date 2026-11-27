@@ -34,6 +34,7 @@
 #include "data/data_media_types.h"
 #include "data/data_search_controller.h"
 #include "data/data_session.h"
+#include "data/data_types.h"
 #include "data/data_user.h"
 #include "history/history.h"
 #include "history/history_item.h"

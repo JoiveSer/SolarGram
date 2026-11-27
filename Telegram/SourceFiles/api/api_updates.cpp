@@ -79,6 +79,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "solar/solar_worker.h"
 #include "solar/data/entities.h"
 #include "solar/data/solar_database.h"
+#include "solar/features/privacy/solar_guards.h"
 #include "solar/utils/telegram_helpers.h"
 
 
@@ -2432,6 +2433,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 				chat->setPendingRequestsCount(count, requesters);
 			} else if (const auto channel = peer->asChannel()) {
 				channel->setPendingRequestsCount(count, requesters);
+				SolarFeatures::Guards::ObservePendingJoinRequests(
+					channel,
+					requesters);
 			}
 		}
 	} break;
@@ -2629,6 +2633,16 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 					session().api().chatParticipants().requestSelf(channel);
 				}
 			}
+		}
+	} break;
+
+	case mtpc_updateChannelParticipant: {
+		const auto &d = update.c_updateChannelParticipant();
+		if (const auto channel = session().data().channelLoaded(d.vchannel_id())) {
+			SolarFeatures::Guards::ObserveChannelParticipant(
+				channel,
+				UserId(d.vuser_id()),
+				d.vnew_participant());
 		}
 	} break;
 

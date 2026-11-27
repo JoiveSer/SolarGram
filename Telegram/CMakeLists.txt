@@ -221,6 +221,8 @@ set(solargram_files
         solar/features/streamer_mode/streamer_mode.h
         solar/features/security/outgoing_guard.cpp
         solar/features/security/outgoing_guard.h
+        solar/features/privacy/solar_guards.cpp
+        solar/features/privacy/solar_guards.h
         solar/features/hotkeys/solar_hotkeys.cpp
         solar/features/hotkeys/solar_hotkeys.h
         solar/features/ai/solar_brain.cpp

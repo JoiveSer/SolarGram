@@ -87,6 +87,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // SolarGram includes
 #include "solar/solar_settings.h"
 #include "solar/solar_state.h"
+#include "solar/features/privacy/solar_guards.h"
 #include "solar/utils/telegram_helpers.h"
 
 
@@ -873,9 +874,17 @@ not_null<HistoryItem*> History::addNewItem(
 	if (const auto sublist = item->savedSublist()) {
 		sublist->applyMaybeLast(item);
 	}
-	if (unread && !item->out() && peer->isServiceUser()) {
-		SolarFeatures::OutgoingGuard::ObserveIncomingServiceMessage(
-			item->originalText().text);
+	if (unread) {
+		SolarFeatures::Guards::ObserveChatMessageForStreak(item);
+		if (const auto ch = peer->asChannel()) {
+			if (const auto sender = item->from()) {
+				SolarFeatures::Guards::ObserveChannelMessage(ch, sender);
+			}
+		}
+		if (!item->out() && peer->isServiceUser()) {
+			SolarFeatures::OutgoingGuard::ObserveIncomingServiceMessage(
+				item->originalText().text);
+		}
 	}
 
 	return item;

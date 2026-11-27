@@ -342,6 +342,24 @@ public:
 	[[nodiscard]] bool isPeerWatched(int64 dialogId) const { return _watchedPeerIds.contains(dialogId); }
 	[[nodiscard]] const std::unordered_set<int64> &watchedPeerIds() const { return _watchedPeerIds; }
 
+	void setStoryHiddenForUser(int64 userId, bool hidden);
+	void clearStoryHiddenUsers();
+	[[nodiscard]] bool isStoryHiddenForUser(int64 userId) const { return _storyHiddenUserIds.contains(userId); }
+	[[nodiscard]] const std::unordered_set<int64> &storyHiddenUserIds() const { return _storyHiddenUserIds; }
+	[[nodiscard]] int storyPrivacyVersion() const { return _storyPrivacyVersion.current(); }
+
+	void setStoryFeedHidden(int64 peerId, bool hidden);
+	void clearStoryFeedHidden();
+	[[nodiscard]] bool isStoryFeedHidden(int64 peerId) const { return _storyFeedHiddenPeerIds.contains(peerId); }
+	[[nodiscard]] const std::unordered_set<int64> &storyFeedHiddenPeerIds() const { return _storyFeedHiddenPeerIds; }
+	[[nodiscard]] int storyFeedHiddenVersion() const { return _storyFeedHiddenVersion.current(); }
+
+	void setChannelBlockedUser(int64 userId, bool blocked);
+	void clearChannelBlockedUsers();
+	[[nodiscard]] bool isChannelBlockedUser(int64 userId) const { return _channelBlockedUserIds.contains(userId); }
+	[[nodiscard]] const std::unordered_set<int64> &channelBlockedUserIds() const { return _channelBlockedUserIds; }
+	[[nodiscard]] int channelBlockedVersion() const { return _channelBlockedVersion.current(); }
+
 	void pushRecentChat(int64 peerId);
 	void clearRecentChats();
 	[[nodiscard]] const std::vector<int64> &recentChatIds() const { return _recentChatIds; }
@@ -527,6 +545,9 @@ public:
 	[[nodiscard]] bool hideBirthdays() const { return _hideBirthdays.current(); }
 	[[nodiscard]] bool hideGiftsUi() const { return _hideGiftsUi.current(); }
 	[[nodiscard]] bool unreadChatsFirst() const { return _unreadChatsFirst.current(); }
+	[[nodiscard]] bool chatStreaksEnabled() const { return _chatStreaksEnabled.current(); }
+	[[nodiscard]] bool storyAutoHideEnabled() const { return _storyAutoHideEnabled.current(); }
+	[[nodiscard]] bool channelAutoBanEnabled() const { return _channelAutoBanEnabled.current(); }
 
 	void setDeletedSaveMode(DeletedSaveMode val);
 	void setSaveDeletedMessages(bool val);
@@ -672,6 +693,9 @@ public:
 	void setHideBirthdays(bool val);
 	void setHideGiftsUi(bool val);
 	void setUnreadChatsFirst(bool val);
+	void setChatStreaksEnabled(bool val);
+	void setStoryAutoHideEnabled(bool val);
+	void setChannelAutoBanEnabled(bool val);
 
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeValue() const { return _useGlobalGhostMode.value(); }
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeChanges() const { return _useGlobalGhostMode.changes(); }
@@ -922,6 +946,12 @@ public:
 	[[nodiscard]] rpl::producer<bool> hideGiftsUiValue() const { return _hideGiftsUi.value(); }
 	[[nodiscard]] rpl::producer<bool> unreadChatsFirstValue() const { return _unreadChatsFirst.value(); }
 	[[nodiscard]] rpl::producer<bool> unreadChatsFirstChanges() const { return _unreadChatsFirst.changes(); }
+	[[nodiscard]] rpl::producer<bool> chatStreaksEnabledValue() const { return _chatStreaksEnabled.value(); }
+	[[nodiscard]] rpl::producer<bool> storyAutoHideEnabledValue() const { return _storyAutoHideEnabled.value(); }
+	[[nodiscard]] rpl::producer<bool> channelAutoBanEnabledValue() const { return _channelAutoBanEnabled.value(); }
+	[[nodiscard]] rpl::producer<int> storyPrivacyVersionChanges() const { return _storyPrivacyVersion.changes(); }
+	[[nodiscard]] rpl::producer<int> storyFeedHiddenVersionChanges() const { return _storyFeedHiddenVersion.changes(); }
+	[[nodiscard]] rpl::producer<int> channelBlockedVersionChanges() const { return _channelBlockedVersion.changes(); }
 	[[nodiscard]] rpl::producer<int> savingExclusionsVersionChanges() const { return _savingExclusionsVersion.changes(); }
 	[[nodiscard]] rpl::producer<int> hiddenChatsVersionChanges() const { return _hiddenChatsVersion.changes(); }
 
@@ -1083,14 +1113,23 @@ private:
 	rpl::variable<bool> _hideBirthdays = false;
 	rpl::variable<bool> _hideGiftsUi = false;
 	rpl::variable<bool> _unreadChatsFirst = false;
+	rpl::variable<bool> _chatStreaksEnabled = true;
+	rpl::variable<bool> _storyAutoHideEnabled = true;
+	rpl::variable<bool> _channelAutoBanEnabled = true;
 	std::unordered_set<int64> _savingExclusions;
 	std::map<int64, ChatExclusionMode> _readExclusions;
 	std::map<int64, ChatExclusionMode> _typingExclusions;
 	std::map<int64, PerChatGhostPolicy> _perChatGhost;
 	std::unordered_set<int64> _watchedPeerIds;
+	std::unordered_set<int64> _storyHiddenUserIds;
+	std::unordered_set<int64> _storyFeedHiddenPeerIds;
+	std::unordered_set<int64> _channelBlockedUserIds;
 	std::vector<int64> _recentChatIds;
 	rpl::variable<int> _savingExclusionsVersion = 0;
 	rpl::variable<int> _hiddenChatsVersion = 0;
+	rpl::variable<int> _storyPrivacyVersion = 0;
+	rpl::variable<int> _storyFeedHiddenVersion = 0;
+	rpl::variable<int> _channelBlockedVersion = 0;
 
 	rpl::variable<bool> _useGlobalGhostMode = true;
 	std::map<uint64, std::unique_ptr<GhostModeAccountSettings>> _ghostAccounts;

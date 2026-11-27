@@ -9361,3 +9361,34 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "solar_UnreadChatsFirst" = "Pin Unread Chats to Top";
 "solar_HideBirthdays" = "Hide Contact Birthdays UI";
 "solar_HideGiftsUi" = "Hide Profile & Star Gifts UI";
+
+// SolarGram v1.0.2 — Chat Streaks, Story Auto-Hide, Channel Auto-Ban Guard & Activity Radar
+"solar_ChatStreaks" = "Chat Streaks (Ogonyok)";
+"solar_ChatStreaksAbout" = "Locally tracks consecutive daily chats and displays a streak flame badge in the dialog list and profile.";
+"solar_ChatStreakProfileLabel" = "Chat Streak";
+"solar_ChatStreakDays" = "%1 days";
+"solar_ChatStreakDaysWithBest" = "%1 days (best: %2)";
+"solar_StoryAutoHide" = "Auto-Hide My Stories (Blacklist)";
+"solar_StoryAutoHideAbout" = "Automatically adds blacklisted users to Disallow rules on your active stories via MTProto.";
+"solar_HideMyStoriesFromUser" = "Hide My Stories from User";
+"solar_UnhideMyStoriesFromUser" = "Allow User to See My Stories";
+"solar_StoryBlacklistManage" = "Story Auto-Hide Blacklist";
+"solar_ApplyStoryHideNow" = "Apply to My Active Stories";
+"solar_StoryHideAppliedToast" = "Story hide list applied to %1 active story(ies).";
+"solar_HidePeerStoriesFeed" = "Hide Stories in My Feed";
+"solar_UnhidePeerStoriesFeed" = "Show Stories in My Feed";
+"solar_StoryFeedHiddenManage" = "Hidden Stories in Feed";
+"solar_ChannelAutoBan" = "Channel Auto-Ban Guard";
+"solar_ChannelAutoBanAbout" = "Automatically bans blacklisted users and declines their join requests across channels where you can ban members.";
+"solar_BlockInMyChannels" = "Auto-Ban in My Channels";
+"solar_UnblockInMyChannels" = "Remove from Channel Auto-Ban";
+"solar_ChannelBlacklistManage" = "Channel Auto-Ban Blacklist";
+"solar_SyncChannelBansNow" = "Sync Bans to My Channels";
+"solar_ChannelBansSyncedToast" = "Queued ban checks across %1 owned/admin channel(s).";
+"solar_ActivityRadar" = "Activity Radar";
+"solar_ActivityRadarTitle" = "Activity Radar";
+"solar_BlacklistEmpty" = "List is empty. Right-click any user and open the SolarGram menu to add them.";
+"solar_ClearBlacklist" = "Clear All";
+"solar_AddUserById" = "Add User ID";
+"solar_AddUserByIdPlaceholder" = "Numeric Telegram User ID";
+"solar_InvalidUserId" = "Enter a valid numeric Telegram User ID.";

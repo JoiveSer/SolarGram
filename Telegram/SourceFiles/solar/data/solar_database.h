@@ -43,6 +43,11 @@ std::vector<SpyPresenceLog> getSpyPresenceLogs(ID userId, ID peerId, int limitCo
 int getRememberedLastSeen(ID userId, ID peerId);
 void clearSpyPresenceLogs(ID userId, ID peerId);
 
+std::optional<ChatStreak> getChatStreak(ID userId, ID dialogId);
+std::vector<ChatStreak> getAllChatStreaks(ID userId);
+void upsertChatStreak(const ChatStreak &streak);
+void clearChatStreaks(ID userId = 0);
+
 bool exportBackupJson(const QString &filePath, const QJsonObject &settingsJson);
 std::optional<QJsonObject> importBackupJson(const QString &filePath, bool replaceExisting);
 

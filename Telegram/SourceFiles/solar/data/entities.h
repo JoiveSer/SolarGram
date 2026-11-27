@@ -147,3 +147,16 @@ public:
 	int timestamp;
 	std::string details;
 };
+
+class ChatStreak
+{
+public:
+	ID fakeId;
+	ID userId;
+	ID dialogId;
+	int currentStreak;
+	int bestStreak;
+	int lastOutDay;
+	int lastInDay;
+	int lastStreakDay;
+};

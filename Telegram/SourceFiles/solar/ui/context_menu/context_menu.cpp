@@ -15,6 +15,8 @@
 #include "solar/features/filters/filters_controller.h"
 #include "solar/features/forward/solar_forward.h"
 #include "solar/features/forward/solar_forward_rich.h"
+#include "solar/features/privacy/solar_guards.h"
+#include "data/data_stories.h"
 #include "solar/ui/context_menu/menu_item_subtext.h"
 #include "solar/ui/message_history/history_section.h"
 #include "solar/ui/settings/settings_solar_utils.h"
@@ -586,6 +588,69 @@ void AddSolarGramActions(PeerData *peerData,
 						SolarSettings::getInstance().setPeerWatched(dialogId, !isWatched);
 					},
 					isWatched ? &st::menuIconMute : &st::menuIconUnmute);
+
+				const auto bareUid = getBareID(user);
+				const auto isStoryHidden = SolarSettings::getInstance().isStoryHiddenForUser(bareUid);
+				addAction(
+					isStoryHidden
+						? tr::solar_UnhideMyStoriesFromUser(tr::now)
+						: tr::solar_HideMyStoriesFromUser(tr::now),
+					[=] {
+						auto &s = SolarSettings::getInstance();
+						s.setStoryHiddenForUser(bareUid, !isStoryHidden);
+						if (!isStoryHidden) {
+							SolarFeatures::Guards::ApplyStoryHideToAllSelfStories(&user->session());
+						}
+					},
+					isStoryHidden ? &st::menuIconUserShow : &st::menuIconUserHide);
+
+				const auto isChannelBlocked = SolarSettings::getInstance().isChannelBlockedUser(bareUid);
+				addAction(
+					isChannelBlocked
+						? tr::solar_UnblockInMyChannels(tr::now)
+						: tr::solar_BlockInMyChannels(tr::now),
+					[=] {
+						auto &s = SolarSettings::getInstance();
+						s.setChannelBlockedUser(bareUid, !isChannelBlocked);
+						if (!isChannelBlocked) {
+							SolarFeatures::Guards::BanUserInAllOwnedChannels(user);
+						}
+					},
+					isChannelBlocked ? &st::menuIconRestore : &st::menuIconBlock);
+			}
+
+			// Feed Story Filter & Activity Radar
+			addAction({ .isSeparator = true });
+			if (!user || !user->isSelf()) {
+				const auto isFeedHidden = SolarSettings::getInstance().isStoryFeedHidden(dialogId);
+				addAction(
+					isFeedHidden
+						? tr::solar_UnhidePeerStoriesFeed(tr::now)
+						: tr::solar_HidePeerStoriesFeed(tr::now),
+					[=] {
+						SolarSettings::getInstance().setStoryFeedHidden(dialogId, !isFeedHidden);
+						peerData->owner().stories().notifySourcesChanged(
+							Data::StorySourcesList::NotHidden);
+					},
+					isFeedHidden ? &st::menuIconStoriesSavedSection : &st::menuIconArchive);
+			}
+			addAction(
+				tr::solar_ActivityRadar(tr::now),
+				[=] {
+					SolarFeatures::Guards::ShowActivityRadarBox(sessionController, peerData);
+				},
+				&st::menuIconStats);
+			if (const auto channel = peerData->asChannel();
+					channel
+					&& channel->canBanMembers()
+					&& !SolarSettings::getInstance().channelBlockedUserIds().empty()) {
+				addAction(
+					tr::solar_SyncChannelBansNow(tr::now),
+					[=] {
+						const auto count = SolarFeatures::Guards::SyncChannelBlacklists(&peerData->session());
+						sessionController->showToast(tr::solar_ChannelBansSyncedToast(tr::now).arg(count));
+					},
+					&st::menuIconBlock);
 			}
 
 			// Summarize Chat (Last 50 messages via SolarBrain, SereinGram RecentLines pattern)

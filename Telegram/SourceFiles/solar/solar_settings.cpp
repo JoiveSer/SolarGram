@@ -707,6 +707,74 @@ void SolarSettings::setPeerWatched(int64 dialogId, bool watched) {
 	}
 }
 
+namespace {
+
+bool updateTrackedIdSet(
+		std::unordered_set<int64> &target,
+		int64 id,
+		bool add,
+		rpl::variable<int> &version) {
+	if (!id) {
+		return false;
+	}
+	const auto changed = add
+		? target.insert(id).second
+		: (target.erase(id) > 0);
+	if (changed) {
+		version = version.current() + 1;
+	}
+	return changed;
+}
+
+bool clearTrackedIdSet(
+		std::unordered_set<int64> &target,
+		rpl::variable<int> &version) {
+	if (target.empty()) {
+		return false;
+	}
+	target.clear();
+	version = version.current() + 1;
+	return true;
+}
+
+} // namespace
+
+void SolarSettings::setStoryHiddenForUser(int64 userId, bool hidden) {
+	if (updateTrackedIdSet(_storyHiddenUserIds, userId, hidden, _storyPrivacyVersion)) {
+		save();
+	}
+}
+
+void SolarSettings::clearStoryHiddenUsers() {
+	if (clearTrackedIdSet(_storyHiddenUserIds, _storyPrivacyVersion)) {
+		save();
+	}
+}
+
+void SolarSettings::setStoryFeedHidden(int64 peerId, bool hidden) {
+	if (updateTrackedIdSet(_storyFeedHiddenPeerIds, peerId, hidden, _storyFeedHiddenVersion)) {
+		save();
+	}
+}
+
+void SolarSettings::clearStoryFeedHidden() {
+	if (clearTrackedIdSet(_storyFeedHiddenPeerIds, _storyFeedHiddenVersion)) {
+		save();
+	}
+}
+
+void SolarSettings::setChannelBlockedUser(int64 userId, bool blocked) {
+	if (updateTrackedIdSet(_channelBlockedUserIds, userId, blocked, _channelBlockedVersion)) {
+		save();
+	}
+}
+
+void SolarSettings::clearChannelBlockedUsers() {
+	if (clearTrackedIdSet(_channelBlockedUserIds, _channelBlockedVersion)) {
+		save();
+	}
+}
+
 void SolarSettings::pushRecentChat(int64 peerId) {
 	if (!peerId) {
 		return;
@@ -1844,6 +1912,27 @@ void SolarSettings::setUnreadChatsFirst(bool val) {
 	save();
 }
 
+void SolarSettings::setChatStreaksEnabled(bool val) {
+	if (_chatStreaksEnabled.current() == val) return;
+	_chatStreaksEnabled = val;
+	repaintApp();
+	save();
+}
+
+void SolarSettings::setStoryAutoHideEnabled(bool val) {
+	if (_storyAutoHideEnabled.current() == val) return;
+	_storyAutoHideEnabled = val;
+	_storyPrivacyVersion = _storyPrivacyVersion.current() + 1;
+	save();
+}
+
+void SolarSettings::setChannelAutoBanEnabled(bool val) {
+	if (_channelAutoBanEnabled.current() == val) return;
+	_channelAutoBanEnabled = val;
+	_channelBlockedVersion = _channelBlockedVersion.current() + 1;
+	save();
+}
+
 SolarSettings::DeviceSpoofSnapshot SolarSettings::deviceSpoofSnapshot() const {
 	std::lock_guard lock(spoofSnapshotMutex());
 	return cachedSpoofSnapshot();
@@ -2026,8 +2115,14 @@ void to_json(nlohmann::json &j, const SolarSettings &s) {
 		{"hideBirthdays", s._hideBirthdays.current()},
 		{"hideGiftsUi", s._hideGiftsUi.current()},
 		{"unreadChatsFirst", s._unreadChatsFirst.current()},
+		{"chatStreaksEnabled", s._chatStreaksEnabled.current()},
+		{"storyAutoHideEnabled", s._storyAutoHideEnabled.current()},
+		{"channelAutoBanEnabled", s._channelAutoBanEnabled.current()},
 		{"savingExclusions", s._savingExclusions},
 		{"watchedPeerIds", s._watchedPeerIds},
+		{"storyHiddenUserIds", s._storyHiddenUserIds},
+		{"storyFeedHiddenPeerIds", s._storyFeedHiddenPeerIds},
+		{"channelBlockedUserIds", s._channelBlockedUserIds},
 		{"recentChatIds", s._recentChatIds},
 		{"readExclusions", readExcl},
 		{"typingExclusions", typingExcl},
@@ -2210,8 +2305,14 @@ void from_json(const nlohmann::json &j, SolarSettings &s) {
 	s._hideBirthdays = j.value("hideBirthdays", defaults._hideBirthdays.current());
 	s._hideGiftsUi = j.value("hideGiftsUi", defaults._hideGiftsUi.current());
 	s._unreadChatsFirst = j.value("unreadChatsFirst", defaults._unreadChatsFirst.current());
+	s._chatStreaksEnabled = j.value("chatStreaksEnabled", defaults._chatStreaksEnabled.current());
+	s._storyAutoHideEnabled = j.value("storyAutoHideEnabled", defaults._storyAutoHideEnabled.current());
+	s._channelAutoBanEnabled = j.value("channelAutoBanEnabled", defaults._channelAutoBanEnabled.current());
 	s._savingExclusions = j.value("savingExclusions", defaults._savingExclusions);
 	s._watchedPeerIds = j.value("watchedPeerIds", defaults._watchedPeerIds);
+	s._storyHiddenUserIds = j.value("storyHiddenUserIds", defaults._storyHiddenUserIds);
+	s._storyFeedHiddenPeerIds = j.value("storyFeedHiddenPeerIds", defaults._storyFeedHiddenPeerIds);
+	s._channelBlockedUserIds = j.value("channelBlockedUserIds", defaults._channelBlockedUserIds);
 	s._recentChatIds = j.value("recentChatIds", defaults._recentChatIds);
 	if (s._recentChatIds.size() > 50) {
 		s._recentChatIds.resize(50);

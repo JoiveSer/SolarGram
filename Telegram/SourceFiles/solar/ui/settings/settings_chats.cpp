@@ -490,6 +490,15 @@ void BuildMessageQoL(SectionBuilder &builder, SolarSectionBuilder &solar) {
 		.setter = &SolarSettings::setUnreadChatsFirst,
 	});
 	solar.addSettingToggle({
+		.id = u"solar/chatStreaks"_q,
+		.title = tr::solar_ChatStreaks(),
+		.getter = &SolarSettings::chatStreaksEnabled,
+		.setter = &SolarSettings::setChatStreaksEnabled,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_ChatStreaksAbout());
+	builder.addSkip();
+	solar.addSettingToggle({
 		.id = u"solar/hideBirthdays"_q,
 		.title = tr::solar_HideBirthdays(),
 		.getter = &SolarSettings::hideBirthdays,

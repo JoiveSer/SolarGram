@@ -119,6 +119,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/features/privacy/solar_guards.h"
 #include "solar/ui/utils/solar_profile_values.h"
 #include "solar/utils/telegram_helpers.h"
 #include "styles/style_solar_styles.h"
@@ -2030,6 +2031,19 @@ Section DetailsFiller::makeInfo() {
 				}
 				return false;
 			});
+		}
+	}
+	if (!_topic) {
+		if (const auto streak = SolarFeatures::Guards::GetStreakInfo(_peer);
+				streak.current > 0 || streak.best > 0) {
+			const auto flame = QString::fromUtf8("\xF0\x9F\x94\xA5 ");
+			const auto text = (streak.best > streak.current)
+				? (flame + tr::solar_ChatStreakDaysWithBest(tr::now).arg(streak.current).arg(streak.best))
+				: (flame + tr::solar_ChatStreakDays(tr::now).arg(streak.current));
+			addInfoOneLine(
+				tr::solar_ChatStreakProfileLabel(),
+				rpl::single(TextWithEntities{ text }),
+				QString());
 		}
 	}
 	raw->toggleOn(tracker.atLeastOneShownValue());

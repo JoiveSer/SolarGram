@@ -53,6 +53,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/features/filters/filters_controller.h"
+#include "solar/features/privacy/solar_guards.h"
 #include "styles/style_solar_icons.h"
 
 
@@ -818,6 +819,12 @@ void PaintRow(
 	} else if (!itemIsEmpty || showFilteredItem) {
 		if ((thread || sublist) && !promoted) {
 			PaintDialogDate(p, entry, fakeRow, date, rectForName, context);
+			if (history && !context.search) {
+				if (const auto streakText = SolarFeatures::Guards::FormatStreakBadge(
+						history->peer); !streakText.isEmpty()) {
+					PaintRowTopRight(p, streakText, rectForName, context);
+				}
+			}
 		}
 
 		paintItemCallback(nameleft, namewidth);

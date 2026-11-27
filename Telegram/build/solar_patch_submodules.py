@@ -109,6 +109,38 @@ def main() -> None:
     ):
         changed += 1
 
+    # 4b. codegen: lang/subsets.cpp -> scan solar_* lang keys under Ninja/Subsets mode
+    codegen_lang_subsets = os.path.join(TELEGRAM_DIR, "codegen", "codegen", "lang", "subsets.cpp")
+    old_lang_scan = (
+        "\t\tconst auto isKeyPrefix = (data[i] == 'l' && data[i + 1] == 'n'\n"
+        "\t\t\t&& data[i + 2] == 'g' && data[i + 3] == '_')\n"
+        "\t\t\t|| (data[i] == 'a' && data[i + 1] == 'y'\n"
+        "\t\t\t\t&& data[i + 2] == 'u' && data[i + 3] == '_');\n"
+        "\t\tif (!isKeyPrefix\n"
+        "\t\t\t|| (i > 0 && IsIdentifierChar(data[i - 1]))) {\n"
+        "\t\t\tcontinue;\n"
+        "\t\t}\n"
+        "\t\tauto till = i + 4;"
+    )
+    new_lang_scan = (
+        "\t\tconst auto isSolarPrefix = (i + 6 <= size)\n"
+        "\t\t\t&& (data[i] == 's' && data[i + 1] == 'o'\n"
+        "\t\t\t\t&& data[i + 2] == 'l' && data[i + 3] == 'a'\n"
+        "\t\t\t\t&& data[i + 4] == 'r' && data[i + 5] == '_');\n"
+        "\t\tconst auto isKeyPrefix = isSolarPrefix\n"
+        "\t\t\t|| (data[i] == 'l' && data[i + 1] == 'n'\n"
+        "\t\t\t\t&& data[i + 2] == 'g' && data[i + 3] == '_')\n"
+        "\t\t\t|| (data[i] == 'a' && data[i + 1] == 'y'\n"
+        "\t\t\t\t&& data[i + 2] == 'u' && data[i + 3] == '_');\n"
+        "\t\tif (!isKeyPrefix\n"
+        "\t\t\t|| (i > 0 && IsIdentifierChar(data[i - 1]))) {\n"
+        "\t\t\tcontinue;\n"
+        "\t\t}\n"
+        "\t\tauto till = i + (isSolarPrefix ? 6 : 4);"
+    )
+    if patch_file(codegen_lang_subsets, [(old_lang_scan, new_lang_scan)]):
+        changed += 1
+
     # 5. cmake: external/qt/CMakeLists.txt -> Qt 6.11+ QDnsLookup on Windows requires Dnsapi.lib
     qt_cmake = os.path.join(os.path.dirname(TELEGRAM_DIR), "cmake", "external", "qt", "CMakeLists.txt")
     if os.path.isfile(qt_cmake):

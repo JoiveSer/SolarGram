@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // SolarGram includes
 #include "solar/solar_settings.h"
+#include "solar/features/privacy/solar_guards.h"
 #include "solar/utils/telegram_helpers.h"
 
 
@@ -587,6 +588,9 @@ Story *Stories::parseAndApply(
 		if (j != end(_pollingSettings)) {
 			maybeSchedulePolling(result, j->second, now);
 		}
+		if (!expired && peer->isSelf()) {
+			SolarFeatures::Guards::ObserveSelfStory(result);
+		}
 		if (mediaChanged) {
 			_preloaded.remove(fullId);
 			if (_preloading && _preloading->id() == fullId) {
@@ -626,6 +630,9 @@ Story *Stories::parseAndApply(
 		applyExpired(fullId);
 	} else {
 		registerExpiring(expires, fullId);
+		if (peer->isSelf()) {
+			SolarFeatures::Guards::ObserveSelfStory(result);
+		}
 	}
 
 	if (wasDeleted) {

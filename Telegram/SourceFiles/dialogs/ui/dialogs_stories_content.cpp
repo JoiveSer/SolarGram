@@ -30,6 +30,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "styles/style_menu_icons.h"
 
+// SolarGram includes
+#include "rpl/merge.h"
+#include "solar/solar_settings.h"
+#include "solar/utils/telegram_helpers.h"
+
 namespace Dialogs::Stories {
 namespace {
 
@@ -69,6 +74,10 @@ Content State::next() {
 
 		auto userpic = std::shared_ptr<Ui::DynamicImage>();
 		const auto peer = source->peer;
+		if (!peer->isSelf()
+			&& SolarSettings::getInstance().isStoryFeedHidden(getDialogIdFromPeer(peer))) {
+			continue;
+		}
 		if (const auto i = _userpics.find(peer); i != end(_userpics)) {
 			userpic = i->second;
 		} else {
@@ -85,6 +94,7 @@ Content State::next() {
 			.skipSmall = peer->isSelf() ? 1U : 0U,
 		});
 	}
+	result.total = int(result.elements.size());
 	_userpics = std::move(userpics);
 	return result;
 }
@@ -101,7 +111,10 @@ rpl::producer<Content> ContentForSession(
 		rpl::single(
 			rpl::empty
 		) | rpl::then(
-			stories->sourcesChanged(list)
+			rpl::merge(
+				stories->sourcesChanged(list),
+				SolarSettings::getInstance().storyFeedHiddenVersionChanges()
+					| rpl::to_empty)
 		) | rpl::on_next([=] {
 			consumer.put_next(state->next());
 		}, result);
@@ -275,6 +288,22 @@ void FillSourceMenu(
 				toggle(true);
 			}, &st::menuIconUnarchive);
 		}
+		if (peer->isUser()) {
+			const auto uid = getBareID(peer);
+			const auto isStoryHidden = SolarSettings::getInstance().isStoryHiddenForUser(uid);
+			add(
+				isStoryHidden
+					? tr::solar_UnhideMyStoriesFromUser(tr::now)
+					: tr::solar_HideMyStoriesFromUser(tr::now),
+				[=] {
+					SolarSettings::getInstance().setStoryHiddenForUser(uid, !isStoryHidden);
+				},
+				isStoryHidden ? &st::menuIconUserShow : &st::menuIconUserHide);
+		}
+		const auto feedDid = getDialogIdFromPeer(peer);
+		add(tr::solar_HidePeerStoriesFeed(tr::now), [=] {
+			SolarSettings::getInstance().setStoryFeedHidden(feedDid, true);
+		}, &st::menuIconMute);
 	}
 }
 

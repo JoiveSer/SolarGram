@@ -8,6 +8,7 @@
 #include "solar/data/messages_storage.h"
 #include "solar/data/solar_database.h"
 #include "solar/features/hotkeys/solar_hotkeys.h"
+#include "solar/features/privacy/solar_guards.h"
 #include "solar/ui/solar_userpic.h"
 #include "solar/ui/boxes/edit_mark_box.h"
 #include "solar/ui/settings/solar_builder.h"
@@ -1211,6 +1212,107 @@ void BuildOther(SectionBuilder &builder, SolarSectionBuilder &solar) {
 		.title = tr::solar_DisableAds(),
 		.getter = &SolarSettings::disableAds,
 		.setter = &SolarSettings::setDisableAds,
+	});
+
+	const auto controller = builder.controller();
+	auto *settings = &SolarSettings::getInstance();
+
+	solar.addSectionDivider();
+	builder.addSubsectionTitle(tr::solar_ActivityRadarTitle());
+
+	solar.addSettingToggle({
+		.id = u"solar/storyAutoHide"_q,
+		.title = tr::solar_StoryAutoHide(),
+		.getter = &SolarSettings::storyAutoHideEnabled,
+		.setter = &SolarSettings::setStoryAutoHideEnabled,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_StoryAutoHideAbout());
+	builder.addSkip();
+
+	builder.addButton({
+		.id = u"solar/storyBlacklistManage"_q,
+		.title = tr::solar_StoryBlacklistManage(),
+		.st = &st::settingsButtonNoIcon,
+		.label = rpl::single(0) | rpl::then(
+			settings->storyPrivacyVersionChanges()
+		) | rpl::map([](int) {
+			return QString::number(SolarSettings::getInstance().storyHiddenUserIds().size());
+		}),
+		.onClick = [=] {
+			if (controller) {
+				SolarFeatures::Guards::ShowBlacklistManagerBox(
+					controller,
+					SolarFeatures::Guards::BlacklistKind::StoryHide);
+			}
+		},
+	});
+	builder.addButton({
+		.id = u"solar/applyStoryHideNow"_q,
+		.title = tr::solar_ApplyStoryHideNow(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [weak = base::make_weak(controller)] {
+			if (const auto c = weak.get()) {
+				const auto count = SolarFeatures::Guards::ApplyStoryHideToAllSelfStories(&c->session());
+				c->showToast(tr::solar_StoryHideAppliedToast(tr::now).arg(count));
+			}
+		},
+	});
+	builder.addButton({
+		.id = u"solar/storyFeedHiddenManage"_q,
+		.title = tr::solar_StoryFeedHiddenManage(),
+		.st = &st::settingsButtonNoIcon,
+		.label = rpl::single(0) | rpl::then(
+			settings->storyFeedHiddenVersionChanges()
+		) | rpl::map([](int) {
+			return QString::number(SolarSettings::getInstance().storyFeedHiddenPeerIds().size());
+		}),
+		.onClick = [=] {
+			if (controller) {
+				SolarFeatures::Guards::ShowBlacklistManagerBox(
+					controller,
+					SolarFeatures::Guards::BlacklistKind::StoryFeedHide);
+			}
+		},
+	});
+
+	solar.addSettingToggle({
+		.id = u"solar/channelAutoBan"_q,
+		.title = tr::solar_ChannelAutoBan(),
+		.getter = &SolarSettings::channelAutoBanEnabled,
+		.setter = &SolarSettings::setChannelAutoBanEnabled,
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::solar_ChannelAutoBanAbout());
+	builder.addSkip();
+
+	builder.addButton({
+		.id = u"solar/channelBlacklistManage"_q,
+		.title = tr::solar_ChannelBlacklistManage(),
+		.st = &st::settingsButtonNoIcon,
+		.label = rpl::single(0) | rpl::then(
+			settings->channelBlockedVersionChanges()
+		) | rpl::map([](int) {
+			return QString::number(SolarSettings::getInstance().channelBlockedUserIds().size());
+		}),
+		.onClick = [=] {
+			if (controller) {
+				SolarFeatures::Guards::ShowBlacklistManagerBox(
+					controller,
+					SolarFeatures::Guards::BlacklistKind::ChannelAutoBan);
+			}
+		},
+	});
+	builder.addButton({
+		.id = u"solar/syncChannelBansNow"_q,
+		.title = tr::solar_SyncChannelBansNow(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [weak = base::make_weak(controller)] {
+			if (const auto c = weak.get()) {
+				const auto count = SolarFeatures::Guards::SyncChannelBlacklists(&c->session());
+				c->showToast(tr::solar_ChannelBansSyncedToast(tr::now).arg(count));
+			}
+		},
 	});
 }
 

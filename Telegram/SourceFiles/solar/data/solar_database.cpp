@@ -34,6 +34,7 @@ struct LastSeenCacheKeyHash {
 };
 
 std::unordered_map<LastSeenCacheKey, int, LastSeenCacheKeyHash> rememberedLastSeenCache;
+std::unordered_map<LastSeenCacheKey, ChatStreak, LastSeenCacheKeyHash> chatStreakCache;
 
 } // namespace
 
@@ -179,6 +180,20 @@ auto storage = make_storage(
 		make_column("eventType", &SpyPresenceLog::eventType),
 		make_column("timestamp", &SpyPresenceLog::timestamp),
 		make_column("details", &SpyPresenceLog::details)
+	),
+	make_index("idx_chat_streak_userId_dialogId",
+			   column<ChatStreak>(&ChatStreak::userId),
+			   column<ChatStreak>(&ChatStreak::dialogId)),
+	make_table<ChatStreak>(
+		"ChatStreak",
+		make_column("fakeId", &ChatStreak::fakeId, primary_key().autoincrement()),
+		make_column("userId", &ChatStreak::userId),
+		make_column("dialogId", &ChatStreak::dialogId),
+		make_column("currentStreak", &ChatStreak::currentStreak),
+		make_column("bestStreak", &ChatStreak::bestStreak),
+		make_column("lastOutDay", &ChatStreak::lastOutDay),
+		make_column("lastInDay", &ChatStreak::lastInDay),
+		make_column("lastStreakDay", &ChatStreak::lastStreakDay)
 	)
 );
 
@@ -631,6 +646,97 @@ void clearSpyPresenceLogs(ID userId, ID peerId) {
 		}
 	} catch (const std::exception &ex) {
 		LOG(("Failed to clear spy presence logs: %1").arg(ex.what()));
+	}
+}
+
+std::optional<ChatStreak> getChatStreak(ID userId, ID dialogId) {
+	std::lock_guard lock(databaseMutex);
+	const LastSeenCacheKey key{ userId, dialogId };
+	if (const auto it = chatStreakCache.find(key); it != chatStreakCache.end()) {
+		if (it->second.fakeId == 0 && it->second.currentStreak == 0) {
+			return std::nullopt;
+		}
+		return it->second;
+	}
+	try {
+		auto rows = storage.get_all<ChatStreak>(
+			where(
+				column<ChatStreak>(&ChatStreak::userId) == userId and
+				column<ChatStreak>(&ChatStreak::dialogId) == dialogId
+			),
+			limit(1)
+		);
+		if (rows.empty()) {
+			ChatStreak empty{};
+			empty.fakeId = 0;
+			empty.userId = userId;
+			empty.dialogId = dialogId;
+			chatStreakCache.emplace(key, empty);
+			return std::nullopt;
+		}
+		chatStreakCache.emplace(key, rows.front());
+		return rows.front();
+	} catch (const std::exception &ex) {
+		LOG(("Failed to get chat streak: %1").arg(ex.what()));
+		return std::nullopt;
+	}
+}
+
+std::vector<ChatStreak> getAllChatStreaks(ID userId) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		return storage.get_all<ChatStreak>(
+			where(column<ChatStreak>(&ChatStreak::userId) == userId)
+		);
+	} catch (const std::exception &ex) {
+		LOG(("Failed to list chat streaks: %1").arg(ex.what()));
+		return {};
+	}
+}
+
+void upsertChatStreak(const ChatStreak &streak) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		auto existing = storage.get_all<ChatStreak>(
+			where(
+				column<ChatStreak>(&ChatStreak::userId) == streak.userId and
+				column<ChatStreak>(&ChatStreak::dialogId) == streak.dialogId
+			),
+			limit(1)
+		);
+		ChatStreak stored = streak;
+		if (existing.empty()) {
+			stored.fakeId = storage.insert(streak);
+		} else {
+			stored.fakeId = existing.front().fakeId;
+			storage.update(stored);
+		}
+		chatStreakCache[LastSeenCacheKey{ stored.userId, stored.dialogId }] = stored;
+	} catch (const std::exception &ex) {
+		LOG(("Failed to save chat streak: %1").arg(ex.what()));
+	}
+}
+
+void clearChatStreaks(ID userId) {
+	std::lock_guard lock(databaseMutex);
+	try {
+		if (userId == 0) {
+			storage.remove_all<ChatStreak>();
+			chatStreakCache.clear();
+		} else {
+			storage.remove_all<ChatStreak>(
+				where(column<ChatStreak>(&ChatStreak::userId) == userId)
+			);
+			for (auto it = chatStreakCache.begin(); it != chatStreakCache.end();) {
+				if (it->first.userId == userId) {
+					it = chatStreakCache.erase(it);
+				} else {
+					++it;
+				}
+			}
+		}
+	} catch (const std::exception &ex) {
+		LOG(("Failed to clear chat streaks: %1").arg(ex.what()));
 	}
 }
 

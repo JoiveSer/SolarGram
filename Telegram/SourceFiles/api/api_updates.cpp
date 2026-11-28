@@ -1421,7 +1421,7 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 				SpyMessageRead mark;
 				mark.fakeId = 0;
 				mark.userId = _session->userId().bare & PeerId::kChatTypeMask;
-				mark.dialogId = getDialogIdFromPeer(peer);
+				mark.dialogId = getDialogIdFromPeer(history->peer);
 				mark.messageId = d.vmax_id().v;
 				mark.entityCreateDate = base::unixtime::now();
 				SolarDatabase::addSpyMessageRead(mark);
@@ -1890,7 +1890,7 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 				SpyMessageRead mark;
 				mark.fakeId = 0;
 				mark.userId = session().userId().bare & PeerId::kChatTypeMask;
-				mark.dialogId = getDialogIdFromPeer(peer);
+				mark.dialogId = getDialogIdFromPeer(history->peer);
 				mark.messageId = d.vmax_id().v;
 				mark.entityCreateDate = base::unixtime::now();
 				SolarDatabase::addSpyMessageRead(mark);
@@ -2223,8 +2223,8 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 				if (!changes.isEmpty()) {
 					SolarDatabase::addSpyPresenceLog({
 						0,
-						session().userId().bare & PeerId::kChatTypeMask,
-						user->id.value & PeerId::kChatTypeMask,
+						static_cast<ID>(session().userId().bare & PeerId::kChatTypeMask),
+						static_cast<ID>(user->id.value & PeerId::kChatTypeMask),
 						2,
 						base::unixtime::now(),
 						changes.join(u" | "_q).toStdString(),
@@ -2284,8 +2284,8 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 					&& SolarSettings::getInstance().presenceLoggerEnabled()) {
 					SolarDatabase::addSpyPresenceLog({
 						0,
-						session().userId().bare & PeerId::kChatTypeMask,
-						user->id.value & PeerId::kChatTypeMask,
+						static_cast<ID>(session().userId().bare & PeerId::kChatTypeMask),
+						static_cast<ID>(user->id.value & PeerId::kChatTypeMask),
 						3,
 						base::unixtime::now(),
 						u"Phone changed"_q.toStdString(),

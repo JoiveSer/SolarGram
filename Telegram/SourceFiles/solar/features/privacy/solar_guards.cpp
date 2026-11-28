@@ -23,6 +23,7 @@
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_components.h"
+#include "history/view/history_view_element.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "solar/data/entities.h"
@@ -229,8 +230,6 @@ public:
 			break;
 		case BlacklistKind::StoryFeedHide:
 			settings.setStoryFeedHidden(targetId, false);
-			_session->data().stories().notifySourcesChanged(
-				Data::StorySourcesList::NotHidden);
 			break;
 		case BlacklistKind::ChannelAutoBan:
 			settings.setChannelBlockedUser(targetId, false);
@@ -390,17 +389,19 @@ void BanUserInAllOwnedChannels(not_null<UserData*> user) {
 		return;
 	}
 	auto delay = 0;
-	const auto weakUser = base::make_weak(user);
+	const auto session = &user->session();
+	const auto targetUserId = user->id.to<UserId>();
 	for (const auto &row : user->owner().chatsList()->indexed()->all()) {
 		const auto history = row->history();
 		const auto channel = history ? history->peer->asChannel() : nullptr;
 		if (!channel || !channel->canBanMembers()) {
 			continue;
 		}
-		const auto weakChannel = base::make_weak(channel);
-		base::call_delayed(delay, &user->session(), [=] {
-			if (const auto ch = weakChannel.get()) {
-				if (const auto u = weakUser.get()) {
+		const auto channelId = channel->id.to<ChannelId>();
+		base::call_delayed(delay, session, [=] {
+			auto &data = session->data();
+			if (const auto ch = data.channelLoaded(channelId)) {
+				if (const auto u = data.userLoaded(targetUserId)) {
 					BanUserInChannel(ch, u);
 				}
 			}
@@ -424,19 +425,19 @@ int SyncChannelBlacklists(not_null<Main::Session*> session) {
 			continue;
 		}
 		++channelsCount;
+		const auto channelId = channel->id.to<ChannelId>();
 		for (const auto rawUid : blocked) {
 			if (rawUid <= 0) {
 				continue;
 			}
-			const auto user = data.userLoaded(UserId(static_cast<uint64>(rawUid)));
-			if (!user || user->isSelf()) {
+			const auto userId = UserId(static_cast<uint64>(rawUid));
+			if (const auto user = data.userLoaded(userId); !user || user->isSelf()) {
 				continue;
 			}
-			const auto weakChannel = base::make_weak(channel);
-			const auto weakUser = base::make_weak(user);
 			base::call_delayed(delay, session, [=] {
-				if (const auto ch = weakChannel.get()) {
-					if (const auto u = weakUser.get()) {
+				auto &d = session->data();
+				if (const auto ch = d.channelLoaded(channelId)) {
+					if (const auto u = d.userLoaded(userId)) {
 						BanUserInChannel(ch, u);
 					}
 				}

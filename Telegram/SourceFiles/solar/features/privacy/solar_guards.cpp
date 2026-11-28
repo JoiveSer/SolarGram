@@ -751,8 +751,6 @@ void ShowBlacklistManagerBox(
 					break;
 				case BlacklistKind::StoryFeedHide:
 					s.clearStoryFeedHidden();
-					controller->session().data().stories().notifySourcesChanged(
-						Data::StorySourcesList::NotHidden);
 					break;
 				case BlacklistKind::ChannelAutoBan:
 					s.clearChannelBlockedUsers();

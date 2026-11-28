@@ -630,8 +630,6 @@ void AddSolarGramActions(PeerData *peerData,
 						: tr::solar_HidePeerStoriesFeed(tr::now),
 					[=] {
 						SolarSettings::getInstance().setStoryFeedHidden(dialogId, !isFeedHidden);
-						peerData->owner().stories().notifySourcesChanged(
-							Data::StorySourcesList::NotHidden);
 					},
 					isFeedHidden ? &st::menuIconStoriesSavedSection : &st::menuIconArchive);
 			}

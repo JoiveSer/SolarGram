@@ -1116,7 +1116,7 @@ void BuildPartisanSecurity(SectionBuilder &builder, SolarSectionBuilder &solar) 
 			}
 			const auto weak = base::make_weak(controller);
 			FileDialog::GetWritePath(
-				controller->widget(),
+				controller->widget().get(),
 				tr::solar_ExportBackup(tr::now),
 				u"JSON Files (*.json)"_q,
 				u"solargram_backup.json"_q,
@@ -1145,7 +1145,7 @@ void BuildPartisanSecurity(SectionBuilder &builder, SolarSectionBuilder &solar) 
 			}
 			const auto weak = base::make_weak(controller);
 			FileDialog::GetOpenPath(
-				controller->widget(),
+				controller->widget().get(),
 				tr::solar_ImportBackup(tr::now),
 				u"JSON Files (*.json)"_q,
 				[=](FileDialog::OpenResult &&result) {

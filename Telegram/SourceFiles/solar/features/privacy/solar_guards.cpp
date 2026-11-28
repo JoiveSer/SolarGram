@@ -12,6 +12,7 @@
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_chat_participant_status.h"
+#include "data/data_message_reactions.h"
 #include "data/data_peer_id.h"
 #include "data/data_session.h"
 #include "data/data_stories.h"

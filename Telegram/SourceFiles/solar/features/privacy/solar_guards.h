@@ -3,7 +3,8 @@
 #pragma once
 
 #include "base/basic_types.h"
-#include "mtproto/scheme/mtproto_api.h"
+#include "scheme.h"
+#include "data/data_peer_id.h"
 
 class ChannelData;
 class HistoryItem;

@@ -726,7 +726,7 @@ void ShowSolarPinBox(
 		if (description.has_value()) {
 			box->addRow(object_ptr<Ui::FlatLabel>(
 				box,
-				std::move(*description),
+				rpl::duplicate(*description),
 				st::boxLabel));
 		}
 		auto container = object_ptr<Ui::RpWidget>(box);
